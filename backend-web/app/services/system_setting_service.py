@@ -65,6 +65,10 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
     # real_mouse 过滑块本地/远程排队权重（默认 1:1，多来源同时排队时按比例放行）
     "captcha.real_mouse_weight_local": ("1", "real_mouse过滑块本地排队权重"),
     "captcha.real_mouse_weight_remote": ("1", "real_mouse过滑块远程排队权重"),
+    # 中转站配置：AI 回复默认使用的中转站 API 地址和 Key
+    "ai_proxy.base_url": ("", "中转站 API 地址（全局默认，账号未单独配置 AI 时使用）"),
+    "ai_proxy.api_key": ("", "中转站 API Key（全局默认，账号未单独配置 AI 时使用）"),
+    "ai_proxy.model_name": ("gpt-3.5-turbo", "中转站默认模型名称"),
 }
 
 # 不需要XSS转义的键（布尔值、数字等）
@@ -115,6 +119,10 @@ NO_ESCAPE_KEYS = {
     # real_mouse 排队权重：数字字符串，无需 XSS 转义
     "captcha.real_mouse_weight_local",
     "captcha.real_mouse_weight_remote",
+    # 中转站配置：API 地址和 Key 含 :// 等字符，不能被 XSS 转义
+    "ai_proxy.base_url",
+    "ai_proxy.api_key",
+    "ai_proxy.model_name",
 }
 
 

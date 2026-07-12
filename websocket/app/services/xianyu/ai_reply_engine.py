@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.db.session import async_session_maker
 from common.models.xy_account import XYAccount
 from common.models.ai_chat_message import AIChatMessage
+from common.models.system_setting import SystemSetting
 from app.services.xianyu.resource_manager import pause_manager
 from common.services.ai_provider_service import (
     DEFAULT_AI_BASE_URL,
@@ -353,8 +354,25 @@ class AIReplyEngine:
             logger.error(f"时间范围解析判断失败: {start_str} - {end_str}, error: {e}")
             return True
 
+    async def _get_global_ai_proxy_settings(self, db_session: AsyncSession) -> Dict[str, Any]:
+        """从系统设置中获取全局中转站配置"""
+        try:
+            from sqlalchemy import select
+            keys = ["ai_proxy.base_url", "ai_proxy.api_key", "ai_proxy.model_name"]
+            stmt = select(SystemSetting).where(SystemSetting.key.in_(keys))
+            result = await db_session.execute(stmt)
+            settings = {row.key: row.value for row in result.scalars().all()}
+            return {
+                "base_url": settings.get("ai_proxy.base_url", ""),
+                "api_key": settings.get("ai_proxy.api_key", ""),
+                "model_name": settings.get("ai_proxy.model_name", "gpt-3.5-turbo"),
+            }
+        except Exception as e:
+            logger.error(f"获取全局中转站配置失败: {e}")
+            return {"base_url": "", "api_key": "", "model_name": "gpt-3.5-turbo"}
+
     async def is_ai_enabled(self, cookie_id: str, db_session: AsyncSession) -> bool:
-        """检查指定账号是否启用AI回复（同时检查API Key是否配置及时间范围）"""
+        """检查指定账号是否启用AI回复（优先检查账号配置，其次检查全局中转站配置）"""
         try:
             account = await self._get_account(cookie_id, db_session)
             if not account:
@@ -362,46 +380,77 @@ class AIReplyEngine:
             
             # 从账号的 metadata_json 中获取AI设置
             ai_settings = (account.metadata_json or {}).get("ai_reply_settings") or {}
-            
-            # 检查AI是否启用（兼容历史 enabled 字段）
             settings = self._extract_ai_settings(ai_settings)
-            if not settings.get("ai_enabled"):
-                return False
             
-            missing_fields = get_ai_settings_missing_fields(settings)
-            if missing_fields:
-                logger.warning(f"【{cookie_id}】AI已启用但配置未填写完整，跳过AI回复: {'、'.join(missing_fields)}")
-                return False
+            # 如果账号启用了AI且有完整配置，走账号配置
+            if settings.get("ai_enabled"):
+                missing_fields = get_ai_settings_missing_fields(settings)
+                if not missing_fields:
+                    # 检查启用时间范围
+                    start_str = settings.get("ai_time_range_start", "")
+                    end_str = settings.get("ai_time_range_end", "")
+                    if self._is_time_in_range(start_str, end_str):
+                        return True
+                    logger.info(f"【{cookie_id}】当前时间不在AI启用时间段（{start_str} - {end_str}）内，跳过AI回复")
+                    return False
+                logger.warning(f"【{cookie_id}】AI已启用但配置未填写完整: {'、'.join(missing_fields)}")
             
-            # 检查启用时间范围
-            start_str = settings.get("ai_time_range_start", "")
-            end_str = settings.get("ai_time_range_end", "")
-            if not self._is_time_in_range(start_str, end_str):
-                logger.info(f"【{cookie_id}】当前时间不在AI启用时间段（{start_str} - {end_str}）内，跳过AI回复")
-                return False
+            # 账号没配AI或配置不完整，检查全局中转站配置
+            global_settings = await self._get_global_ai_proxy_settings(db_session)
+            if global_settings.get("base_url") and global_settings.get("api_key"):
+                logger.info(f"【{cookie_id}】使用全局中转站配置（地址: {global_settings['base_url']}）")
+                return True
             
-            return True
+            logger.debug(f"【{cookie_id}】AI回复未启用（账号未配置且全局中转站未配置）")
+            return False
         except Exception as e:
             logger.error(f"【{cookie_id}】检查AI启用状态失败: {e}")
             return False
     
     async def get_ai_settings(self, cookie_id: str, db_session: AsyncSession) -> Dict[str, Any]:
-        """获取AI回复设置"""
+        """获取AI回复设置（优先返回账号配置，否则返回全局中转站配置）"""
         try:
             account = await self._get_account(cookie_id, db_session)
             if not account:
-                return self._get_default_settings()
+                return await self._get_fallback_ai_settings(db_session)
             
             # 从账号的 metadata_json 中获取AI设置
             ai_settings = (account.metadata_json or {}).get("ai_reply_settings") or {}
             
-            if not ai_settings:
-                return self._get_default_settings()
+            if ai_settings:
+                settings = self._extract_ai_settings(ai_settings)
+                if settings.get("ai_enabled"):
+                    missing_fields = get_ai_settings_missing_fields(settings)
+                    if not missing_fields:
+                        return settings
             
-            return self._extract_ai_settings(ai_settings)
+            # 账号没配或配置不完整，使用全局中转站配置
+            return await self._get_fallback_ai_settings(db_session)
         except Exception as e:
             logger.error(f"【{cookie_id}】获取AI设置失败: {e}")
-            return self._get_default_settings()
+            return await self._get_fallback_ai_settings(db_session)
+
+    async def _get_fallback_ai_settings(self, db_session: AsyncSession) -> Dict[str, Any]:
+        """获取兜底的AI设置（全局中转站配置）"""
+        try:
+            global_settings = await self._get_global_ai_proxy_settings(db_session)
+            if global_settings.get("base_url") and global_settings.get("api_key"):
+                return {
+                    "ai_enabled": True,
+                    "provider_type": "openai_compatible",
+                    "api_key": global_settings["api_key"],
+                    "base_url": global_settings["base_url"],
+                    "model_name": global_settings["model_name"] or "gpt-3.5-turbo",
+                    "max_bargain_rounds": 3,
+                    "max_discount_percent": 10,
+                    "max_discount_amount": 100,
+                    "custom_prompts": "",
+                    "ai_time_range_start": "",
+                    "ai_time_range_end": "",
+                }
+        except Exception as e:
+            logger.error(f"获取全局中转站配置失败: {e}")
+        return self._get_default_settings()
     
     def _get_default_settings(self) -> Dict[str, Any]:
         """获取默认AI设置"""

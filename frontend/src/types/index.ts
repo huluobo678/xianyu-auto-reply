@@ -284,6 +284,10 @@ export interface SystemSettings {
   // 用户到期/续期设置
   'user.renew_month_price'?: string
   'user.register_default_days'?: string
+  // 中转站配置
+  'ai_proxy.base_url'?: string
+  'ai_proxy.api_key'?: string
+  'ai_proxy.model_name'?: string
   [key: string]: unknown
 }
 

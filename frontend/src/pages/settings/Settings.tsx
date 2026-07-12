@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Mail, RefreshCw, Eye, EyeOff, Copy, Upload, MessageCircle, Users, Percent, CreditCard, Megaphone, Heart, Globe, CalendarClock } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Mail, RefreshCw, Eye, EyeOff, Copy, Upload, MessageCircle, Users, Percent, CreditCard, Megaphone, Heart, Globe, CalendarClock, Cpu } from 'lucide-react'
 import {
   buildHiddenMenuSettingsPayload,
   getHiddenMenuKeysFromSettings,
@@ -1296,6 +1296,106 @@ export function Settings() {
                   {distributionSaving ? <ButtonLoading /> : <Save className="w-4 h-4" />}
                   保存分销设置
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 中转站配置（仅管理员可见） */}
+      {user?.is_admin && (
+        <div className="grid grid-cols-1 gap-4">
+          <div className="vben-card">
+            <div className="vben-card-header">
+              <h2 className="vben-card-title">
+                <Cpu className="w-4 h-4" />
+                中转站配置
+              </h2>
+            </div>
+            <div className="vben-card-body space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">配置全局 AI 中转站，当账号未单独配置 AI 设置时默认使用此中转站</p>
+              <div className="input-group">
+                <label className="input-label">中转站 API 地址</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.base_url'] as string) || ''}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.base_url': e.target.value } : null)}
+                  placeholder="https://api.openai.com/v1"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">OpenAI 兼容接口地址，例如 https://api.openai.com/v1</p>
+              </div>
+              <div className="input-group">
+                <label className="input-label">中转站 API Key</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.api_key'] as string) || ''}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.api_key': e.target.value } : null)}
+                  placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">你的中转站 API Key</p>
+              </div>
+              <div className="input-group">
+                <label className="input-label">默认模型名称</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.model_name'] as string) || 'gpt-3.5-turbo'}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.model_name': e.target.value } : null)}
+                  placeholder="gpt-3.5-turbo"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">中转站支持的模型名称，例如 gpt-3.5-turbo、deepseek-chat</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 中转站配置（仅管理员可见） */}
+      {user?.is_admin && (
+        <div className="grid grid-cols-1 gap-4">
+          <div className="vben-card">
+            <div className="vben-card-header">
+              <h2 className="vben-card-title">
+                <Cpu className="w-4 h-4" />
+                中转站配置
+              </h2>
+            </div>
+            <div className="vben-card-body space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">配置中转站 API，用于 AI 回复的默认模型调用。每个闲鱼账号也可单独配置 AI 设置，单独配置优先。</p>
+              <div className="input-group">
+                <label className="input-label">中转站 API 地址</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.base_url'] as string) || ''}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.base_url': e.target.value } : null)}
+                  placeholder="https://api.yourproxy.com/v1"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">OpenAI 兼容接口的 base_url，例如：https://api.yourproxy.com/v1</p>
+              </div>
+              <div className="input-group">
+                <label className="input-label">中转站 API Key</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.api_key'] as string) || ''}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.api_key': e.target.value } : null)}
+                  placeholder="sk-your-api-key"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">中转站的 API Key</p>
+              </div>
+              <div className="input-group">
+                <label className="input-label">默认模型名称</label>
+                <input
+                  type="text"
+                  value={(settings?.['ai_proxy.model_name'] as string) || 'gpt-3.5-turbo'}
+                  onChange={(e) => setSettings(s => s ? { ...s, 'ai_proxy.model_name': e.target.value } : null)}
+                  placeholder="gpt-3.5-turbo"
+                  className="input-ios"
+                />
+                <p className="text-xs text-slate-400 mt-1">中转站默认使用的模型名称</p>
               </div>
             </div>
           </div>
