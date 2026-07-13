@@ -69,7 +69,7 @@ async def send_dingtalk_notification(config_data: Dict[str, Any], message: str) 
         data = {
             "msgtype": "markdown",
             "markdown": {
-                "title": "闲鱼自动回复通知",
+                "title": "闲鱼AI自动回复通知",
                 "text": message
             }
         }
@@ -157,7 +157,7 @@ async def send_bark_notification(config_data: Dict[str, Any], message: str) -> b
     try:
         server_url = config_data.get('server_url', 'https://api.day.app').rstrip('/')
         device_key = config_data.get('device_key', '')
-        title = config_data.get('title', '闲鱼自动回复通知')
+        title = config_data.get('title', '闲鱼AI自动回复通知')
         sound = config_data.get('sound', 'default')
         icon = config_data.get('icon', '')
         group = config_data.get('group', 'xianyu')
@@ -323,7 +323,7 @@ async def send_email_notification(
         msg = MIMEMultipart()
         msg['From'] = email_user
         msg['To'] = recipient_email
-        msg['Subject'] = "闲鱼自动回复通知"
+        msg['Subject'] = "闲鱼AI自动回复通知"
         msg.attach(MIMEText(message, 'plain', 'utf-8'))
 
         if attachment_path and os.path.exists(attachment_path):

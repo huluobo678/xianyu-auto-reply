@@ -87,7 +87,7 @@ class CardSecretKeyService:
         payload = {
             "key": self.api_key,
             "key_name": key_name,
-            "description": f"闲鱼自动回复系统用户 {username} 的对接卡密秘钥",
+            "description": f"闲鱼AI自动管理系统用户 {username} 的对接卡密秘钥",
         }
         url = f"{self.base_url}{_EXTERNAL_CREATE_KEY_PATH}"
 

@@ -116,12 +116,12 @@ class DatabaseInitializer:
         ),
         (
             "login.system_name",
-            "闲鱼管理系统",
+            "闲鱼AI自动管理系统",
             "登录页系统名称",
         ),
         (
             "login.system_title",
-            "高效专业的\n闲鱼自动化管理平台",
+            "高效专业的\n闲鱼AI自动化管理系统",
             "登录页系统标题",
         ),
         (

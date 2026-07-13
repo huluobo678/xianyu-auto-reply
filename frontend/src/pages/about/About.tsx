@@ -140,10 +140,10 @@ export function About() {
           <MessageSquare className="w-8 h-8 text-white" />
         </div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-          闲鱼自动回复管理系统
+          闲鱼AI自动管理系统
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          智能管理您的闲鱼店铺，提升客服效率
+          公众号：云枢AI社
         </p>
         {/* 版本和使用人数 */}
         <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">

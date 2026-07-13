@@ -11,7 +11,7 @@ interface TopNavbarProps {
   systemName?: string
 }
 
-export function TopNavbar({ systemName = '闲鱼管理系统' }: TopNavbarProps) {
+export function TopNavbar({ systemName = '闲鱼AI自动管理系统' }: TopNavbarProps) {
   const navigate = useNavigate()
   const { user, clearAuth, isAuthenticated, token, _hasHydrated } = useAuthStore()
   const [isDark, setIsDark] = useState(false)

@@ -37,7 +37,7 @@ interface SidebarProps {
   systemName?: string
 }
 
-export function Sidebar({ systemName = '闲鱼管理系统' }: SidebarProps) {
+export function Sidebar({ systemName = '闲鱼AI自动管理系统' }: SidebarProps) {
   const { user } = useAuthStore()
   const { hiddenMenuKeys, isExeMode } = useMenuVisibilityStore()
   const { sidebarCollapsed, sidebarMobileOpen, setSidebarMobileOpen, setSidebarCollapsed } = useUIStore()

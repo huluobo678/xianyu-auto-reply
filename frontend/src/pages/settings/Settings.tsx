@@ -777,7 +777,7 @@ export function Settings() {
                     type="text"
                     value={settings?.smtp_from || ''}
                     onChange={(e) => setSettings(s => s ? { ...s, smtp_from: e.target.value } : null)}
-                    placeholder="闲鱼自动回复系统"
+                    placeholder="闲鱼AI自动管理系统"
                     className="input-ios"
                   />
                 </div>

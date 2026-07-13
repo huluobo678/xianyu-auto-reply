@@ -31,13 +31,13 @@ const DEFAULT_DISCLAIMER_SETTINGS: DisclaimerSettings = {
 }
 
 const DEFAULT_LOGIN_BRANDING_SETTINGS: LoginBrandingSettings = {
-  'login.system_name': '闲鱼管理系统',
-  'login.system_title': '高效专业的\n闲鱼自动化管理平台',
-  'login.system_description': '自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题',
+  'login.system_name': '闲鱼AI自动管理系统',
+  'login.system_title': '高效专业的\n闲鱼AI自动化管理系统',
+  'login.system_description': 'AI自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题',
 }
 
 const DEFAULT_AUTH_FOOTER_AD_SETTINGS: AuthFooterAdSettings = {
-  'auth.footer_ad_html': '© 2026 划算云服务器 ·<a href="http://www.hsykj.com" target="_BLANK">www.hsykj.com</a>',
+  'auth.footer_ad_html': '公众号：云枢AI社',
 }
 
 const DISCLAIMER_SETTING_KEYS: Array<keyof DisclaimerSettings> = [
