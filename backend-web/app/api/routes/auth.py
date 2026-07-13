@@ -17,7 +17,7 @@ from app.core.security import decode_token, get_password_hash
 from common.models.user import User, UserRole, UserStatus
 from common.schemas.auth import LoginRequest, LoginResponse, VerifyResponse
 from common.schemas.common import ApiResponse
-from common.schemas.user import UserCreate, UserPublic
+from common.schemas.user import PhoneRegister, UserCreate, UserPublic
 from app.services.auth import AuthService
 from app.services.user_service import UserService
 
@@ -215,21 +215,44 @@ async def register_user(
         if not code_valid:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code_msg)
     elif payload.email:
-        # 有邮箱但没有验证码
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入邮箱验证码")
     
-    # 检查用户名是否已存在
     existing = await user_service.get_by_username(payload.username)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已被注册")
     
-    # 检查邮箱是否已存在
     if payload.email:
         existing_email = await user_service.get_by_email(payload.email)
         if existing_email:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已被注册")
     
     await user_service.create(payload)
+    return ApiResponse(success=True, message="注册成功")
+
+
+@router.post("/register-by-phone", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
+async def register_by_phone(
+    payload: PhoneRegister,
+    user_service: UserService = Depends(deps.get_user_service),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    """手机号注册（11位手机号作为用户名）"""
+    from common.models.user import User
+    from sqlalchemy import select
+    
+    # 检查手机号是否已被注册
+    stmt = select(User).where(User.username == payload.phone)
+    result = await session.execute(stmt)
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该手机号已注册")
+    
+    # 用手机号作为用户名创建用户
+    user_payload = UserCreate(
+        username=payload.phone,
+        email=f"{payload.phone}@phone.user",
+        password=payload.password,
+    )
+    await user_service.create(user_payload)
     return ApiResponse(success=True, message="注册成功")
 
 

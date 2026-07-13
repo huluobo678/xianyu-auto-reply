@@ -390,7 +390,7 @@ export function Login() {
                         type="text"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        placeholder="请输入用户名"
+                        placeholder="手机号/用户名"
                         className="input-ios pl-9"
                       />
                     </div>

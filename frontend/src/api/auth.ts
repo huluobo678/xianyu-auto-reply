@@ -128,6 +128,11 @@ export const register = (data: {
   })
 }
 
+/** 手机号注册 */
+export const registerByPhone = (data: { phone: string; password: string }): Promise<ApiResponse> => {
+  return post(`${AUTH_PREFIX}/register-by-phone`, data)
+}
+
 // ==================== 极验滑动验证码 ====================
 
 // 极验验证码初始化响应类型

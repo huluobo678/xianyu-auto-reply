@@ -19,6 +19,11 @@ class UserCreate(UserBase):
     password: str = Field(min_length=6, max_length=128)
     verification_code: Optional[str] = Field(default=None, max_length=6, description="邮箱验证码")
 
+class PhoneRegister(BaseModel):
+    """手机号注册请求"""
+    phone: str = Field(pattern=r"^1\d{10}$", description="11位手机号")
+    password: str = Field(min_length=6, max_length=128, description="密码")
+
 
 class AdminUserCreate(UserBase):
     username: str = Field(min_length=1, max_length=64)
