@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import secrets
 import string
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Union
 
@@ -52,6 +53,17 @@ WEAK_JWT_SECRETS: frozenset[str] = frozenset({
 
 # 低于该长度的密钥视为过弱
 _MIN_JWT_SECRET_LENGTH = 16
+_STRONG_PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,128}$")
+
+
+def is_strong_password(password: str | None) -> bool:
+    return bool(password and _STRONG_PASSWORD_PATTERN.fullmatch(password))
+
+
+def validate_strong_password(password: str) -> str:
+    if not is_strong_password(password):
+        raise ValueError("密码至少 8 位，且必须包含大写字母、小写字母、数字和特殊字符")
+    return password
 
 
 def is_weak_jwt_secret(secret: str | None) -> bool:

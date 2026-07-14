@@ -201,7 +201,7 @@ async def update_system_setting(
     current_user: User = Depends(deps.get_current_admin_user),
     service: SystemSettingService = Depends(deps.get_system_setting_service),
 ) -> ApiResponse:
-    if key in SENSITIVE_KEYS:
+    if key == "admin_password_hash":
         return ApiResponse(success=False, message="该设置需要使用专用接口修改")
 
     retention_days: int | None = None

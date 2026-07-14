@@ -395,13 +395,13 @@ export function About() {
         <div className="vben-card-body">
           <div className="flex flex-wrap gap-3">
             <a
-              href="https://github.com/zhinianboke"
+              href="https://github.com/huluobo678"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
             >
               <Github className="w-4 h-4 text-slate-600 dark:text-slate-300" />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">zhinianboke</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">huluobo678</span>
               <span className="text-xs text-slate-500 dark:text-slate-400">项目作者</span>
             </a>
             <a
@@ -426,7 +426,7 @@ export function About() {
         <div className="vben-card-body">
           <div className="flex gap-3">
             <a
-              href="https://github.com/zhinianboke/xianyu-auto-reply"
+              href="https://github.com/huluobo678/xianyu-auto-reply"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors text-sm"

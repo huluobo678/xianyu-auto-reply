@@ -163,6 +163,7 @@ export function Accounts() {
   // AI设置状态
   const [aiSettingsAccount, setAiSettingsAccount] = useState<AccountWithKeywordCount | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
+  const [useGlobalAiProxy, setUseGlobalAiProxy] = useState(false)
   const [aiProviderType, setAiProviderType] = useState<AIProviderType>('openai_compatible')
   const [aiApiUrl, setAiApiUrl] = useState('')
   const [aiApiKey, setAiApiKey] = useState('')
@@ -1251,6 +1252,7 @@ export function Accounts() {
       const providerType = (settings.provider_type as AIProviderType) || 'openai_compatible'
       setAiProviderType(providerType)
       setAiEnabled(settings.ai_enabled ?? settings.enabled ?? false)
+      setUseGlobalAiProxy(settings.use_global_ai_proxy ?? false)
       setAiApiUrl(settings.base_url ?? AI_PROVIDER_DEFAULT_BASE_URLS[providerType])
       setAiApiKey(settings.api_key ?? '')
       setAiModelName(settings.model_name ?? 'qwen-plus')
@@ -1284,7 +1286,7 @@ export function Accounts() {
     }
   }
 
-  const getCurrentAIConfigMissingItems = () => getAIConfigMissingItems({
+  const getCurrentAIConfigMissingItems = () => useGlobalAiProxy ? [] : getAIConfigMissingItems({
     provider_type: aiProviderType,
     base_url: aiApiUrl,
     api_key: aiApiKey,
@@ -1361,6 +1363,7 @@ export function Accounts() {
       setAiSettingsSaving(true)
       const result = await updateAIReplySettings(aiSettingsAccount.id, {
         ai_enabled: aiEnabled,
+        use_global_ai_proxy: useGlobalAiProxy,
         provider_type: aiProviderType,
         base_url: aiApiUrl,
         api_key: aiApiKey,
@@ -1404,6 +1407,7 @@ export function Accounts() {
       setAiTesting(true)
       const saveResult = await updateAIReplySettings(aiSettingsAccount.id, {
         ai_enabled: aiEnabled,
+        use_global_ai_proxy: useGlobalAiProxy,
         provider_type: aiProviderType,
         base_url: aiApiUrl,
         api_key: aiApiKey,
@@ -3310,6 +3314,17 @@ export function Accounts() {
                       </p>
                     </div>
                   )}
+
+                  <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700">
+                    <div>
+                      <p className="font-medium text-slate-900 dark:text-slate-100">使用全局 AI 中转站</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">仅在开启时使用管理员配置的中转站；否则必须填写本账号的 AI 配置</p>
+                    </div>
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={useGlobalAiProxy} onChange={(event) => setUseGlobalAiProxy(event.target.checked)} />
+                      <span className="switch-slider"></span>
+                    </label>
+                  </div>
 
                   {/* API配置 */}
                   <div className="border-t border-slate-200 dark:border-slate-700 pt-4">

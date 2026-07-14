@@ -5,7 +5,7 @@ import { MessageSquare, User, Lock, Mail, KeyRound, Eye, EyeOff } from 'lucide-r
 import { AuthNavbar } from '@/components/common/AuthNavbar'
 import { SafeHtml } from '@/components/common/SafeHtml'
 import { getDefaultAuthFooterAdSettings, getDefaultLoginBrandingSettings } from '@/api/settings'
-import { login, verifyToken, getRegistrationStatus, getLoginInfoStatus, generateCaptcha, verifyCaptcha, sendVerificationCode, getLoginCaptchaStatus, getLoginBrandingSettings, getAuthFooterAdSettings } from '@/api/auth'
+import { login, verifyToken, getRegistrationStatus, generateCaptcha, verifyCaptcha, sendVerificationCode, getLoginCaptchaStatus, getLoginBrandingSettings, getAuthFooterAdSettings } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
 import { useUIStore } from '@/store/uiStore'
 import { cn } from '@/utils/cn'
@@ -24,7 +24,6 @@ export function Login() {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
-  const [showDefaultLogin, setShowDefaultLogin] = useState(true)
   const [loginCaptchaEnabled, setLoginCaptchaEnabled] = useState<boolean | null>(null)
   const [loginBranding, setLoginBranding] = useState(() => getDefaultLoginBrandingSettings())
   const [authFooterAd, setAuthFooterAd] = useState(() => getDefaultAuthFooterAdSettings())
@@ -80,10 +79,6 @@ export function Login() {
   useEffect(() => {
     getRegistrationStatus()
       .then((result) => setRegistrationEnabled(result.enabled))
-      .catch(() => {})
-
-    getLoginInfoStatus()
-      .then((result) => setShowDefaultLogin(result.enabled))
       .catch(() => {})
 
     getLoginCaptchaStatus()
@@ -275,11 +270,6 @@ export function Login() {
     }
   }
 
-  const fillDefaultCredentials = () => {
-    setLoginType('username')
-    setUsername('admin')
-    setPassword('admin123')
-  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
@@ -565,24 +555,6 @@ export function Login() {
               )}
             </div>
 
-            {/* Default credentials */}
-            {showDefaultLogin && (
-              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={fillDefaultCredentials}
-                  className="w-full flex items-center justify-between p-3 rounded-md 
-                             bg-slate-50 dark:bg-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700 
-                             transition-colors text-sm"
-                >
-                  <div className="text-left">
-                    <p className="text-slate-500 dark:text-slate-400">演示账号</p>
-                    <p className="text-slate-900 dark:text-white font-medium">admin / admin123</p>
-                  </div>
-                  <span className="text-blue-600 dark:text-blue-400">一键填充 →</span>
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Footer */}

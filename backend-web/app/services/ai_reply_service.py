@@ -23,6 +23,7 @@ from common.models.xy_account import XYAccount
 
 DEFAULT_AI_SETTINGS = {
     "ai_enabled": False,
+    "use_global_ai_proxy": False,
     "provider_type": DEFAULT_AI_PROVIDER_TYPE,
     "model_name": "qwen-plus",
     "api_key": "",
@@ -47,6 +48,7 @@ class AIReplySettingsService:
         payload = DEFAULT_AI_SETTINGS.copy()
         payload.update({k: v for k, v in stored.items() if v is not None})
         payload["ai_enabled"] = read_ai_enabled(stored)
+        payload["use_global_ai_proxy"] = bool(stored.get("use_global_ai_proxy", False))
         payload["max_discount_percent"] = int(payload.get("max_discount_percent", 10) or 0)
         payload["max_discount_amount"] = int(payload.get("max_discount_amount", 100) or 0)
         payload["max_bargain_rounds"] = int(payload.get("max_bargain_rounds", 3) or 0)
@@ -76,6 +78,8 @@ class AIReplySettingsService:
             merged["ai_enabled"] = bool(payload.get("ai_enabled"))
         elif "enabled" in payload:
             merged["ai_enabled"] = bool(payload.get("enabled"))
+        if "use_global_ai_proxy" in payload:
+            merged["use_global_ai_proxy"] = bool(payload.get("use_global_ai_proxy"))
         if "provider_type" in payload:
             merged["provider_type"] = normalize_ai_provider_type(
                 payload.get("provider_type"),
@@ -105,7 +109,7 @@ class AIReplySettingsService:
             merged.get("base_url"),
             merged.get("model_name"),
         )
-        if merged.get("ai_enabled"):
+        if merged.get("ai_enabled") and not merged.get("use_global_ai_proxy"):
             missing_fields = get_ai_settings_missing_fields(merged)
             if missing_fields:
                 raise ValueError(f"AI配置未填写完整，请先补全：{'、'.join(missing_fields)}")

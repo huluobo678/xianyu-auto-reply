@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { MessageSquare, Phone, Lock, Eye, EyeOff } from 'lucide-react'
 import { AuthNavbar } from '@/components/common/AuthNavbar'
 import { registerByPhone } from '@/api/auth'
+import { GeetestCaptcha, type GeetestResult } from '@/components/common/GeetestCaptcha'
 import { useUIStore } from '@/store/uiStore'
 import { ButtonLoading } from '@/components/common/Loading'
 
@@ -15,6 +16,8 @@ export function Register() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [geetestResult, setGeetestResult] = useState<GeetestResult | null>(null)
+  const [geetestKey, setGeetestKey] = useState(0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,10 +42,16 @@ export function Register() {
       return
     }
 
+    const geetestChallenge = geetestResult?.challenge
+    if (!geetestChallenge) {
+      addToast({ type: 'error', message: '???????' })
+      return
+    }
+
     setLoading(true)
 
     try {
-      const result = await registerByPhone({ phone, password })
+      const result = await registerByPhone({ phone, password, geetest_challenge: geetestChallenge })
 
       if (result.success) {
         addToast({ type: 'success', message: '注册成功，请登录' })
@@ -54,6 +63,8 @@ export function Register() {
       const err = error as { response?: { data?: { detail?: string; message?: string } } }
       const errorMsg = err?.response?.data?.detail || err?.response?.data?.message || '注册失败，请检查网络连接'
       addToast({ type: 'error', message: errorMsg })
+      setGeetestResult(null)
+      setGeetestKey((value) => value + 1)
     } finally {
       setLoading(false)
     }
@@ -124,9 +135,17 @@ export function Register() {
               </div>
             </div>
 
+            <GeetestCaptcha
+              key={geetestKey}
+              onSuccess={setGeetestResult}
+              onError={() => setGeetestResult(null)}
+              disabled={loading}
+              buttonText="?????????"
+            />
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !geetestResult}
               className="w-full btn-ios-primary"
             >
               {loading ? <ButtonLoading /> : '注 册'}

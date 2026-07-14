@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import warnings
 from contextlib import contextmanager
 
@@ -29,7 +30,7 @@ from common.db.default_publish_addresses import (
 )
 from common.db.session import async_engine, async_session_maker
 from common.utils.time_utils import get_beijing_now_naive
-from common.utils.security import generate_secret_key, get_password_hash
+from common.utils.security import generate_secret_key, get_password_hash, is_strong_password
 
 
 @contextmanager
@@ -135,6 +136,11 @@ class DatabaseInitializer:
             "登录页和注册页底部广告 HTML",
         ),
         (
+            "registration_enabled",
+            "false",
+            "????????",
+        ),
+        (
             "theme.effect",
             "solid",
             "系统主题效果（solid-纯色，gradient-炫彩）",
@@ -161,28 +167,28 @@ class DatabaseInitializer:
             "redelivery",
             "补发货任务",
             5,
-            True,
+            False,
             "定时补发货任务",
         ),
         (
             "rate",
             "补评价任务",
             20,
-            True,
+            False,
             "定时补评价任务",
         ),
         (
             "polish",
             "擦亮任务",
             60,
-            True,
+            False,
             "定时擦亮商品任务",
         ),
         (
             "day_switch",
             "平台日切换任务",
             60,
-            True,
+            False,
             "定时执行平台日切换任务",
         ),
         (
@@ -196,28 +202,28 @@ class DatabaseInitializer:
             "fetch_orders",
             "获取闲鱼订单任务",
             600,
-            True,
+            False,
             "定时获取闲鱼订单数据",
         ),
         (
             "fetch_pending_orders",
             "获取待发货订单任务",
             60,
-            True,
+            False,
             "定时获取待发货订单并同步收货人姓名/手机号/地址等信息",
         ),
         (
             "fetch_refund_orders",
             "退款订单获取任务",
             120,
-            True,
+            False,
             "定时获取退款订单数据，更新订单状态并触发退款订单注销",
         ),
         (
             "fetch_items",
             "获取闲鱼商品任务",
             1200,
-            True,
+            False,
             "定时获取所有启用账号的闲鱼在售商品并入库（新增或更新）",
         ),
         (
@@ -238,7 +244,7 @@ class DatabaseInitializer:
             "api_cookie_renew",
             "接口续期Cookies任务",
             3600,
-            True,
+            False,
             "定时通过 hasLogin.do 接口为启用账号续期Cookies并同步Set-Cookie",
         ),
         (
@@ -252,49 +258,49 @@ class DatabaseInitializer:
             "red_flower",
             "求小红花任务",
             300,
-            True,
+            False,
             "定时自动求小红花",
         ),
         (
             "db_backup",
             "数据库备份任务",
             3600,
-            True,
+            False,
             "定时备份数据库所有表结构与数据到文件",
         ),
         (
             "delivery_timeout",
             "发货超时检测任务",
             60,
-            True,
+            False,
             "定时将超过阈值仍处于 unknown 的自动发货消息日志标记为 timeout",
         ),
         (
             "listing_monitor",
             "商品监控任务",
             60,
-            True,
+            False,
             "定时执行商品监控：按监控类型调用闲鱼搜索接口采集商品并入库，每次记录监控日志",
         ),
         (
             "seller_fill",
             "采集商品卖家ID补全",
             60,
-            True,
+            False,
             "定时查询采集商品中卖家ID为空的数据，调用商品详情接口补全卖家真实ID与详情",
         ),
         (
             "dm_send",
             "采集商品发送私信",
             60,
-            True,
+            False,
             "定时查询卖家ID已补全且未私信的采集商品，用监控任务配置的私信账号发起私信",
         ),
         (
             "auto_order",
             "采集商品自动下单",
             60,
-            True,
+            False,
             "定时查询已私信且未下单的采集商品，用监控任务配置的下单账号创建订单（拍下，不自动付款）",
         ),
     )
@@ -3184,43 +3190,29 @@ class DatabaseInitializer:
 
 
     async def create_default_admin(self):
-        """创建默认管理员用户 (admin/admin123)"""
-        logger.info("检查默认管理员用户...")
-        
+        """Create the first administrator only from explicit secure environment values."""
+        logger.info("?????????...")
         try:
             async with async_session_maker() as session:
-                # 检查是否已存在admin用户
-                result = await session.execute(
-                    text("SELECT id FROM xy_users WHERE username = 'admin' LIMIT 1")
-                )
-                existing = result.fetchone()
-                
-                if existing:
-                    logger.info("✓ 管理员用户已存在，跳过创建")
+                if (await session.execute(text("SELECT id FROM xy_users WHERE role = 'ADMIN' LIMIT 1"))).fetchone():
+                    logger.info("? ???????????????????")
                     return
-                
-                # 使用 passlib 创建密码哈希
-                password_hash = get_password_hash("admin123")
-                
-                # 插入管理员用户
-                await session.execute(
-                    text("""
-                        INSERT INTO xy_users (username, email, password_hash, status, role, created_at, updated_at)
-                        VALUES ('admin', 'admin@example.com', :password_hash, 'ACTIVE', 'ADMIN', NOW(), NOW())
-                    """),
-                    {"password_hash": password_hash}
-                )
+                username = os.getenv("INITIAL_ADMIN_USERNAME", "").strip()
+                password = os.getenv("INITIAL_ADMIN_PASSWORD", "")
+                if not username or not is_strong_password(password):
+                    logger.warning("???????????? INITIAL_ADMIN_USERNAME ????????? INITIAL_ADMIN_PASSWORD ?????")
+                    return
+                if (await session.execute(text("SELECT id FROM xy_users WHERE username = :username LIMIT 1"), {"username": username})).fetchone():
+                    logger.warning("??????????????? INITIAL_ADMIN_USERNAME ?????")
+                    return
+                await session.execute(text("""INSERT INTO xy_users (username, email, password_hash, status, role, created_at, updated_at) VALUES (:username, :email, :password_hash, 'ACTIVE', 'ADMIN', NOW(), NOW())"""), {"username": username, "email": f"{username}@local.invalid", "password_hash": get_password_hash(password)})
                 await session.commit()
-                
-                logger.info("✓ 默认管理员用户创建成功")
-                logger.info("  用户名: admin")
-                logger.info("  密码: admin123")
-                
+                logger.info("? ???????????")
         except IntegrityError:
-            logger.info("✓ 管理员用户已存在，跳过创建")
+            logger.info("? ?????????????")
         except Exception as e:
-            logger.error(f"✗ 创建管理员用户失败: {e}")
-    
+            logger.error(f"? ???????????: {e}")
+
     async def init_system_settings(self):
         """初始化系统设置"""
         logger.info("初始化系统设置...")

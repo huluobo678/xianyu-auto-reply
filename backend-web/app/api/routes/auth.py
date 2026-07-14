@@ -8,12 +8,16 @@
 4. 用户登出
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.api import deps
 from app.api.routes.captcha import check_email_code
+from app.api.routes.geetest import check_geetest_verified
 from app.core.security import decode_token, get_password_hash
+from common.db.redis_client import get_redis_client
 from common.models.user import User, UserRole, UserStatus
 from common.schemas.auth import LoginRequest, LoginResponse, VerifyResponse
 from common.schemas.common import ApiResponse
@@ -29,6 +33,30 @@ class ResetPasswordRequest(BaseModel):
     email: str
     verification_code: str
     new_password: str
+
+
+async def ensure_public_registration_enabled(session: AsyncSession) -> None:
+    from app.services.system_setting_service import SystemSettingService
+    settings = await SystemSettingService(session).list_settings()
+    if str(settings.get("registration_enabled") or "").strip().lower() not in {"true", "1"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is currently disabled")
+
+
+async def enforce_phone_registration_rate_limit(request: Request, phone: str) -> None:
+    try:
+        client = await get_redis_client()
+        ip = request.client.host if request.client else "unknown"
+        for key, limit in ((f"rate_limit:register:ip:{ip}", 10), (f"rate_limit:register:phone:{phone}", 3)):
+            count = await client.incr(key)
+            if count == 1:
+                await client.expire(key, 600)
+            if count > limit:
+                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="注册请求过于频繁，请 10 分钟后重试")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"?????????: {exc}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="注册服务暂时不可用，请稍后重试")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -188,72 +216,66 @@ async def refresh_token(
 
 
 @router.get("/check-default-password", response_model=ApiResponse)
-async def check_default_password(
-    current_user: User = Depends(deps.get_current_admin_user),
-    auth_service: AuthService = Depends(deps.get_auth_service),
-) -> ApiResponse:
-    """
-    检查管理员密码是否为默认值（admin123）
-    仅管理员可调用，返回 data.is_default 表示是否为默认密码
-    """
-    is_default = auth_service._verify_user_password(current_user, "admin123")
-    return ApiResponse(
-        success=True,
-        message="检查完成",
-        data={"is_default": is_default},
-    )
+async def check_default_password(current_user: User = Depends(deps.get_current_admin_user)) -> ApiResponse:
+    return ApiResponse(success=True, message="Default password check is disabled", data={"is_default": False})
 
 
 @router.post("/register", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     payload: UserCreate,
     user_service: UserService = Depends(deps.get_user_service),
+    session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    # 验证邮箱验证码
+    await ensure_public_registration_enabled(session)
     if payload.email and payload.verification_code:
         code_valid, code_msg = check_email_code(payload.email, payload.verification_code, "register")
         if not code_valid:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code_msg)
     elif payload.email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入邮箱验证码")
-    
-    existing = await user_service.get_by_username(payload.username)
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已被注册")
-    
-    if payload.email:
-        existing_email = await user_service.get_by_email(payload.email)
-        if existing_email:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已被注册")
-    
-    await user_service.create(payload)
-    return ApiResponse(success=True, message="注册成功")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email verification code is required")
+
+    if await user_service.get_by_username(payload.username):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    if payload.email and await user_service.get_by_email(payload.email):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+    try:
+        await user_service.create(payload)
+    except IntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists")
+    return ApiResponse(success=True, message="Registration completed")
 
 
 @router.post("/register-by-phone", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
 async def register_by_phone(
+    request: Request,
     payload: PhoneRegister,
     user_service: UserService = Depends(deps.get_user_service),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    """手机号注册（11位手机号作为用户名）"""
-    from common.models.user import User
+    """??????????????????? Redis ????????"""
     from sqlalchemy import select
-    
-    # 检查手机号是否已被注册
-    stmt = select(User).where(User.username == payload.phone)
-    result = await session.execute(stmt)
+
+    await ensure_public_registration_enabled(session)
+    geetest_ok, geetest_message = check_geetest_verified(payload.geetest_challenge)
+    if not geetest_ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=geetest_message)
+    await enforce_phone_registration_rate_limit(request, payload.phone)
+
+    result = await session.execute(select(User).where(User.username == payload.phone))
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该手机号已注册")
-    
-    # 用手机号作为用户名创建用户
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone number is already registered")
+
     user_payload = UserCreate(
         username=payload.phone,
         email=f"{payload.phone}@phone.user",
+        phone=payload.phone,
         password=payload.password,
     )
-    await user_service.create(user_payload)
-    return ApiResponse(success=True, message="注册成功")
+    try:
+        await user_service.create(user_payload)
+    except IntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone number is already registered")
+    return ApiResponse(success=True, message="Registration completed")
 
 
 @router.post("/reset-password", response_model=ApiResponse)

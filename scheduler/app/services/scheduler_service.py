@@ -269,84 +269,84 @@ class SchedulerService:
             "running": self._running,
             "tasks": {
                 TASK_CODE_REDELIVERY: {
-                    "config": redelivery_config or {"interval_seconds": 5, "enabled": True},
+                    "config": redelivery_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._redelivery_task_handle is not None 
                         and not self._redelivery_task_handle.done()
                     ),
                 },
                 TASK_CODE_RATE: {
-                    "config": rate_config or {"interval_seconds": 20, "enabled": True},
+                    "config": rate_config or {"interval_seconds": 20, "enabled": False},
                     "task_running": (
                         self._rate_task_handle is not None 
                         and not self._rate_task_handle.done()
                     ),
                 },
                 TASK_CODE_POLISH: {
-                    "config": polish_config or {"interval_seconds": 60, "enabled": True},
+                    "config": polish_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._polish_task_handle is not None 
                         and not self._polish_task_handle.done()
                     ),
                 },
                 TASK_CODE_DAY_SWITCH: {
-                    "config": day_switch_config or {"interval_seconds": 60, "enabled": True},
+                    "config": day_switch_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._day_switch_task_handle is not None 
                         and not self._day_switch_task_handle.done()
                     ),
                 },
                 TASK_CODE_CLEANUP_BROWSER_DATA: {
-                    "config": cleanup_browser_data_config or {"interval_seconds": 600, "enabled": True},
+                    "config": cleanup_browser_data_config or {"interval_seconds": 600, "enabled": False},
                     "task_running": (
                         self._cleanup_browser_data_task_handle is not None 
                         and not self._cleanup_browser_data_task_handle.done()
                     ),
                 },
                 TASK_CODE_FETCH_ORDERS: {
-                    "config": fetch_orders_config or {"interval_seconds": 600, "enabled": True},
+                    "config": fetch_orders_config or {"interval_seconds": 600, "enabled": False},
                     "task_running": (
                         self._fetch_orders_task_handle is not None 
                         and not self._fetch_orders_task_handle.done()
                     ),
                 },
                 TASK_CODE_FETCH_PENDING_ORDERS: {
-                    "config": fetch_pending_orders_config or {"interval_seconds": 60, "enabled": True},
+                    "config": fetch_pending_orders_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._fetch_pending_orders_task_handle is not None
                         and not self._fetch_pending_orders_task_handle.done()
                     ),
                 },
                 TASK_CODE_FETCH_REFUND_ORDERS: {
-                    "config": fetch_refund_orders_config or {"interval_seconds": 120, "enabled": True},
+                    "config": fetch_refund_orders_config or {"interval_seconds": 120, "enabled": False},
                     "task_running": (
                         self._fetch_refund_orders_task_handle is not None
                         and not self._fetch_refund_orders_task_handle.done()
                     ),
                 },
                 TASK_CODE_FETCH_ITEMS: {
-                    "config": fetch_items_config or {"interval_seconds": 1200, "enabled": True},
+                    "config": fetch_items_config or {"interval_seconds": 1200, "enabled": False},
                     "task_running": (
                         self._fetch_items_task_handle is not None
                         and not self._fetch_items_task_handle.done()
                     ),
                 },
                 TASK_CODE_LOGIN_RENEW: {
-                    "config": login_renew_config or {"interval_seconds": 600, "enabled": True},
+                    "config": login_renew_config or {"interval_seconds": 600, "enabled": False},
                     "task_running": (
                         self._login_renew_task_handle is not None 
                         and not self._login_renew_task_handle.done()
                     ),
                 },
                 TASK_CODE_COOKIES_REFRESH: {
-                    "config": cookies_refresh_config or {"interval_seconds": 600, "enabled": True},
+                    "config": cookies_refresh_config or {"interval_seconds": 600, "enabled": False},
                     "task_running": (
                         self._cookies_refresh_task_handle is not None
                         and not self._cookies_refresh_task_handle.done()
                     ),
                 },
                 TASK_CODE_API_COOKIE_RENEW: {
-                    "config": api_cookie_renew_config or {"interval_seconds": 600, "enabled": True},
+                    "config": api_cookie_renew_config or {"interval_seconds": 600, "enabled": False},
                     "task_running": (
                         self._api_cookie_renew_task_handle is not None
                         and not self._api_cookie_renew_task_handle.done()
@@ -367,42 +367,42 @@ class SchedulerService:
                     ),
                 },
                 TASK_CODE_DB_BACKUP: {
-                    "config": db_backup_config or {"interval_seconds": 3600, "enabled": True},
+                    "config": db_backup_config or {"interval_seconds": 3600, "enabled": False},
                     "task_running": (
                         self._db_backup_task_handle is not None
                         and not self._db_backup_task_handle.done()
                     ),
                 },
                 TASK_CODE_DELIVERY_TIMEOUT: {
-                    "config": delivery_timeout_config or {"interval_seconds": 60, "enabled": True},
+                    "config": delivery_timeout_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._delivery_timeout_task_handle is not None
                         and not self._delivery_timeout_task_handle.done()
                     ),
                 },
                 TASK_CODE_LISTING_MONITOR: {
-                    "config": listing_monitor_config or {"interval_seconds": 60, "enabled": True},
+                    "config": listing_monitor_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._listing_monitor_task_handle is not None
                         and not self._listing_monitor_task_handle.done()
                     ),
                 },
                 TASK_CODE_SELLER_FILL: {
-                    "config": seller_fill_config or {"interval_seconds": 60, "enabled": True},
+                    "config": seller_fill_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._seller_fill_task_handle is not None
                         and not self._seller_fill_task_handle.done()
                     ),
                 },
                 TASK_CODE_DM_SEND: {
-                    "config": dm_send_config or {"interval_seconds": 60, "enabled": True},
+                    "config": dm_send_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._dm_send_task_handle is not None
                         and not self._dm_send_task_handle.done()
                     ),
                 },
                 TASK_CODE_AUTO_ORDER: {
-                    "config": auto_order_config or {"interval_seconds": 60, "enabled": True},
+                    "config": auto_order_config or {"interval_seconds": 60, "enabled": False},
                     "task_running": (
                         self._auto_order_task_handle is not None
                         and not self._auto_order_task_handle.done()
@@ -491,7 +491,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_REDELIVERY)
             if not config:
-                config = {"interval_seconds": 5, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
             
             interval = config.get("interval_seconds", 5)
             enabled = config.get("enabled", True)
@@ -524,7 +524,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_RATE)
             if not config:
-                config = {"interval_seconds": 20, "enabled": True}
+                config = {"interval_seconds": 20, "enabled": False}
             
             interval = config.get("interval_seconds", 20)
             enabled = config.get("enabled", True)
@@ -557,7 +557,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_POLISH)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
             
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -590,7 +590,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_DAY_SWITCH)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
             
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -623,7 +623,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_CLEANUP_BROWSER_DATA)
             if not config:
-                config = {"interval_seconds": 600, "enabled": True}
+                config = {"interval_seconds": 600, "enabled": False}
             
             interval = config.get("interval_seconds", 600)
             enabled = config.get("enabled", True)
@@ -656,7 +656,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_FETCH_ORDERS)
             if not config:
-                config = {"interval_seconds": 600, "enabled": True}
+                config = {"interval_seconds": 600, "enabled": False}
             
             interval = config.get("interval_seconds", 600)
             enabled = config.get("enabled", True)
@@ -689,7 +689,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_FETCH_PENDING_ORDERS)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -722,7 +722,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_FETCH_REFUND_ORDERS)
             if not config:
-                config = {"interval_seconds": 120, "enabled": True}
+                config = {"interval_seconds": 120, "enabled": False}
 
             interval = config.get("interval_seconds", 120)
             enabled = config.get("enabled", True)
@@ -755,7 +755,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_FETCH_ITEMS)
             if not config:
-                config = {"interval_seconds": 1200, "enabled": True}
+                config = {"interval_seconds": 1200, "enabled": False}
 
             interval = config.get("interval_seconds", 1200)
             enabled = config.get("enabled", True)
@@ -788,7 +788,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_LOGIN_RENEW)
             if not config:
-                config = {"interval_seconds": 600, "enabled": True}
+                config = {"interval_seconds": 600, "enabled": False}
             
             interval = config.get("interval_seconds", 600)
             enabled = config.get("enabled", True)
@@ -820,7 +820,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_COOKIES_REFRESH)
             if not config:
-                config = {"interval_seconds": 600, "enabled": True}
+                config = {"interval_seconds": 600, "enabled": False}
             
             interval = config.get("interval_seconds", 600)
             enabled = config.get("enabled", True)
@@ -852,7 +852,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_API_COOKIE_RENEW)
             if not config:
-                config = {"interval_seconds": 600, "enabled": True}
+                config = {"interval_seconds": 600, "enabled": False}
 
             interval = config.get("interval_seconds", 600)
             enabled = config.get("enabled", True)
@@ -952,7 +952,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_DB_BACKUP)
             if not config:
-                config = {"interval_seconds": 3600, "enabled": True}
+                config = {"interval_seconds": 3600, "enabled": False}
 
             interval = config.get("interval_seconds", 3600)
             enabled = config.get("enabled", True)
@@ -985,7 +985,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_DELIVERY_TIMEOUT)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -1018,7 +1018,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_LISTING_MONITOR)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -1051,7 +1051,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_SELLER_FILL)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -1084,7 +1084,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_DM_SEND)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)
@@ -1117,7 +1117,7 @@ class SchedulerService:
         while self._running:
             config = ScheduledTaskService.get_cached_config(TASK_CODE_AUTO_ORDER)
             if not config:
-                config = {"interval_seconds": 60, "enabled": True}
+                config = {"interval_seconds": 60, "enabled": False}
 
             interval = config.get("interval_seconds", 60)
             enabled = config.get("enabled", True)

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.models.system_setting import SystemSetting
 from common.utils.text_utils import escape_xss
 
-SENSITIVE_KEYS = {"admin_password_hash"}
+SENSITIVE_KEYS = {"admin_password_hash", "ai_proxy.api_key"}
 
 DEFAULT_DISCLAIMER_CONTENT = (
     "数据存储说明\n"
@@ -39,6 +39,7 @@ DEFAULT_LOGIN_SYSTEM_DESCRIPTION = "AI自动回复、智能客服、订单管理
 DEFAULT_AUTH_FOOTER_AD_HTML = "公众号：云枢AI社"
 
 DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
+    "registration_enabled": ("false", "????????"),
     "disclaimer.title": ("免责声明", "系统免责声明标题"),
     "disclaimer.content": (DEFAULT_DISCLAIMER_CONTENT, "系统免责声明正文"),
     "disclaimer.checkbox_text": ("我已阅读并同意以上免责声明", "免责声明勾选提示文案"),
@@ -156,6 +157,8 @@ class SystemSettingService:
         settings: Dict[str, str] = {}
         for entry in result.scalars().all():
             if not include_sensitive and entry.key in SENSITIVE_KEYS:
+                if entry.key == "ai_proxy.api_key" and entry.value:
+                    settings[entry.key] = f"***{entry.value[-4:]}"
                 continue
             settings[entry.key] = entry.value
         return settings
@@ -168,6 +171,9 @@ class SystemSettingService:
         # 对非特殊键的值进行XSS转义
         safe_value = value if key in NO_ESCAPE_KEYS else escape_xss(value)
         safe_description = escape_xss(description) if description else None
+
+        if key in SENSITIVE_KEYS and (not safe_value.strip() or safe_value.strip().startswith("***")):
+            return
 
         if record:
             record.value = safe_value

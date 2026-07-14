@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from common.models.user import UserRole, UserStatus
 from common.schemas.common import TimestampSchema
@@ -20,9 +20,16 @@ class UserCreate(UserBase):
     verification_code: Optional[str] = Field(default=None, max_length=6, description="邮箱验证码")
 
 class PhoneRegister(BaseModel):
-    """手机号注册请求"""
-    phone: str = Field(pattern=r"^1\d{10}$", description="11位手机号")
-    password: str = Field(min_length=6, max_length=128, description="密码")
+    """???????"""
+    phone: str = Field(pattern=r"^1\d{10}$", description="11????")
+    password: str = Field(min_length=8, max_length=128, description="??8?????????????????")
+    geetest_challenge: str = Field(min_length=1, max_length=256, description="???????")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        from common.utils.security import validate_strong_password
+        return validate_strong_password(value)
 
 
 class AdminUserCreate(UserBase):

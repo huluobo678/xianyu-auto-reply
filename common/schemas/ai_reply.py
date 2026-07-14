@@ -7,6 +7,7 @@ class AIReplySettings(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     ai_enabled: bool = False
+    use_global_ai_proxy: bool = False
     provider_type: str = "openai_compatible"
     model_name: str = "qwen-plus"
     api_key: str = ""
@@ -23,6 +24,7 @@ class AIReplySettingsUpdate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     ai_enabled: bool | None = None
+    use_global_ai_proxy: bool | None = None
     provider_type: str | None = None
     model_name: str | None = None
     api_key: str | None = None

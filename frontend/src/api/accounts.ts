@@ -451,6 +451,7 @@ export const AI_PROVIDER_OPTIONS: { value: AIProviderType; label: string; descri
 // AI 回复设置接口 - 与后端 AIReplySettings 模型对应
 export interface AIReplySettings {
   ai_enabled: boolean
+  use_global_ai_proxy?: boolean
   provider_type?: AIProviderType
   model_name?: string
   api_key?: string
