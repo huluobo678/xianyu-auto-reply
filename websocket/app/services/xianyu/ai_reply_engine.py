@@ -372,36 +372,24 @@ class AIReplyEngine:
             return {"base_url": "", "api_key": "", "model_name": "gpt-3.5-turbo"}
 
     async def is_ai_enabled(self, cookie_id: str, db_session: AsyncSession) -> bool:
-        """检查指定账号是否启用AI回复（优先检查账号配置，其次检查全局中转站配置）"""
+        """检查指定账号是否具备实际可用的 AI 回复配置。"""
         try:
-            account = await self._get_account(cookie_id, db_session)
-            if not account:
+            settings = await self.get_ai_settings(cookie_id, db_session)
+            if not settings.get("ai_enabled"):
+                logger.debug(f"【{cookie_id}】AI回复未启用")
                 return False
-            
-            # 从账号的 metadata_json 中获取AI设置
-            ai_settings = (account.metadata_json or {}).get("ai_reply_settings") or {}
-            settings = self._extract_ai_settings(ai_settings)
-            
-            # 如果账号启用了AI且有完整配置，走账号配置
-            if settings.get("ai_enabled"):
-                missing_fields = get_ai_settings_missing_fields(settings)
-                if not missing_fields:
-                    # 检查启用时间范围
-                    start_str = settings.get("ai_time_range_start", "")
-                    end_str = settings.get("ai_time_range_end", "")
-                    if self._is_time_in_range(start_str, end_str):
-                        return True
-                    logger.info(f"【{cookie_id}】当前时间不在AI启用时间段（{start_str} - {end_str}）内，跳过AI回复")
-                    return False
+
+            missing_fields = get_ai_settings_missing_fields(settings)
+            if missing_fields:
                 logger.warning(f"【{cookie_id}】AI已启用但配置未填写完整: {'、'.join(missing_fields)}")
-            
-            # 账号没配AI或配置不完整，检查全局中转站配置
-            global_settings = await self._get_global_ai_proxy_settings(db_session)
-            if global_settings.get("base_url") and global_settings.get("api_key"):
-                logger.info(f"【{cookie_id}】使用全局中转站配置（地址: {global_settings['base_url']}）")
+                return False
+
+            start_str = settings.get("ai_time_range_start", "")
+            end_str = settings.get("ai_time_range_end", "")
+            if self._is_time_in_range(start_str, end_str):
                 return True
-            
-            logger.debug(f"【{cookie_id}】AI回复未启用（账号未配置且全局中转站未配置）")
+
+            logger.info(f"【{cookie_id}】当前时间不在AI启用时间段（{start_str} - {end_str}）内，跳过AI回复")
             return False
         except Exception as e:
             logger.error(f"【{cookie_id}】检查AI启用状态失败: {e}")
@@ -417,16 +405,32 @@ class AIReplyEngine:
             if not settings.get("ai_enabled"):
                 return self._get_default_settings()
             if settings.get("use_global_ai_proxy"):
-                return await self._get_fallback_ai_settings(db_session)
+                return await self._get_fallback_ai_settings(db_session, settings)
             return settings
         except Exception as e:
             logger.error(f"Failed to load AI settings for account {cookie_id}: {e}")
             return self._get_default_settings()
 
-    async def _get_fallback_ai_settings(self, db_session: AsyncSession) -> Dict[str, Any]:
+    async def _get_fallback_ai_settings(
+        self,
+        db_session: AsyncSession,
+        account_settings: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         global_settings = await self._get_global_ai_proxy_settings(db_session)
         if global_settings.get("base_url") and global_settings.get("api_key"):
-            return {"ai_enabled": True, "use_global_ai_proxy": True, "provider_type": "openai_compatible", "api_key": global_settings["api_key"], "base_url": global_settings["base_url"], "model_name": global_settings["model_name"] or "gpt-3.5-turbo", "max_bargain_rounds": 3, "max_discount_percent": 10, "max_discount_amount": 100, "custom_prompts": "", "ai_time_range_start": "", "ai_time_range_end": ""}
+            settings = self._get_default_settings()
+            settings.update(account_settings or {})
+            settings.update(
+                {
+                    "ai_enabled": True,
+                    "use_global_ai_proxy": True,
+                    "provider_type": "openai_compatible",
+                    "api_key": global_settings["api_key"],
+                    "base_url": global_settings["base_url"],
+                    "model_name": global_settings["model_name"] or "gpt-3.5-turbo",
+                }
+            )
+            return settings
         return self._get_default_settings()
 
     def _get_default_settings(self) -> Dict[str, Any]:
