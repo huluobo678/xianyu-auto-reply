@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from common.models.user import UserRole, UserStatus
 from common.schemas.common import TimestampSchema
-from common.utils.security import validate_strong_password
+from common.utils.security import is_strong_password
 
 
 class UserBase(BaseModel):
@@ -23,7 +24,12 @@ class UserCreate(UserBase):
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, value: str) -> str:
-        return validate_strong_password(value)
+        if not is_strong_password(value):
+            raise PydanticCustomError(
+                "password_strength",
+                "密码至少 8 位，且必须包含大写字母、小写字母、数字和特殊字符",
+            )
+        return value
 
 class PhoneRegister(BaseModel):
     """Phone registration payload."""
@@ -34,7 +40,12 @@ class PhoneRegister(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, value: str) -> str:
-        return validate_strong_password(value)
+        if not is_strong_password(value):
+            raise PydanticCustomError(
+                "password_strength",
+                "密码至少 8 位，且必须包含大写字母、小写字母、数字和特殊字符",
+            )
+        return value
 
 
 class AdminUserCreate(UserBase):
