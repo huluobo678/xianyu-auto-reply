@@ -39,7 +39,7 @@ DEFAULT_LOGIN_SYSTEM_DESCRIPTION = "AI自动回复、智能客服、订单管理
 DEFAULT_AUTH_FOOTER_AD_HTML = "公众号：云枢AI社"
 
 DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
-    "registration_enabled": ("false", "????????"),
+    "registration_enabled": ("false", "Whether public registration is enabled"),
     "disclaimer.title": ("免责声明", "系统免责声明标题"),
     "disclaimer.content": (DEFAULT_DISCLAIMER_CONTENT, "系统免责声明正文"),
     "disclaimer.checkbox_text": ("我已阅读并同意以上免责声明", "免责声明勾选提示文案"),

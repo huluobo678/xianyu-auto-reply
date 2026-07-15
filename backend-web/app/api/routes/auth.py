@@ -22,6 +22,7 @@ from common.models.user import User, UserRole, UserStatus
 from common.schemas.auth import LoginRequest, LoginResponse, VerifyResponse
 from common.schemas.common import ApiResponse
 from common.schemas.user import PhoneRegister, UserCreate, UserPublic
+from common.utils.security import validate_strong_password
 from app.services.auth import AuthService
 from app.services.user_service import UserService
 
@@ -55,7 +56,7 @@ async def enforce_phone_registration_rate_limit(request: Request, phone: str) ->
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"?????????: {exc}")
+        logger.error(f"Registration rate-limit check failed: {exc}")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="注册服务暂时不可用，请稍后重试")
 
 
@@ -252,7 +253,7 @@ async def register_by_phone(
     user_service: UserService = Depends(deps.get_user_service),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    """??????????????????? Redis ????????"""
+    """Register a phone-based user after Geetest verification and Redis rate limiting."""
     from sqlalchemy import select
 
     await ensure_public_registration_enabled(session)
@@ -287,9 +288,10 @@ async def reset_password(
 
     业务错误统一以 HTTP 200 + success=False 返回，由前端展示具体消息。
     """
-    # 先校验新密码长度，避免在密码不合规时提前消费掉验证码
-    if len(payload.new_password) < 6:
-        return ApiResponse(success=False, message="新密码长度不能少于6位")
+    try:
+        validate_strong_password(payload.new_password)
+    except ValueError as exc:
+        return ApiResponse(success=False, message=str(exc))
 
     # 验证邮箱验证码（校验成功后会消费该验证码）
     code_valid, code_msg = check_email_code(payload.email, payload.verification_code, "reset_password")

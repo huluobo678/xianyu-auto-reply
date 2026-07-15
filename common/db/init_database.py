@@ -5,7 +5,7 @@
 
 功能：
 1. 创建所有数据表（如果不存在）
-2. 创建默认管理员用户 (admin/admin123)
+2. 按显式环境变量创建首个管理员用户
 3. 初始化系统设置
 
 使用方法：
@@ -138,7 +138,7 @@ class DatabaseInitializer:
         (
             "registration_enabled",
             "false",
-            "????????",
+            "Whether public registration is enabled",
         ),
         (
             "theme.effect",
@@ -3191,27 +3191,27 @@ class DatabaseInitializer:
 
     async def create_default_admin(self):
         """Create the first administrator only from explicit secure environment values."""
-        logger.info("?????????...")
+        logger.info("Checking whether an initial administrator must be created...")
         try:
             async with async_session_maker() as session:
                 if (await session.execute(text("SELECT id FROM xy_users WHERE role = 'ADMIN' LIMIT 1"))).fetchone():
-                    logger.info("? ???????????????????")
+                    logger.info("Administrator already exists; skipping initial administrator creation")
                     return
                 username = os.getenv("INITIAL_ADMIN_USERNAME", "").strip()
                 password = os.getenv("INITIAL_ADMIN_PASSWORD", "")
                 if not username or not is_strong_password(password):
-                    logger.warning("???????????? INITIAL_ADMIN_USERNAME ????????? INITIAL_ADMIN_PASSWORD ?????")
+                    logger.warning("Initial administrator not created: set INITIAL_ADMIN_USERNAME and a strong INITIAL_ADMIN_PASSWORD")
                     return
                 if (await session.execute(text("SELECT id FROM xy_users WHERE username = :username LIMIT 1"), {"username": username})).fetchone():
-                    logger.warning("??????????????? INITIAL_ADMIN_USERNAME ?????")
+                    logger.warning("Initial administrator not created: INITIAL_ADMIN_USERNAME already exists")
                     return
                 await session.execute(text("""INSERT INTO xy_users (username, email, password_hash, status, role, created_at, updated_at) VALUES (:username, :email, :password_hash, 'ACTIVE', 'ADMIN', NOW(), NOW())"""), {"username": username, "email": f"{username}@local.invalid", "password_hash": get_password_hash(password)})
                 await session.commit()
-                logger.info("? ???????????")
+                logger.info("Initial administrator created from environment configuration")
         except IntegrityError:
-            logger.info("? ?????????????")
+            logger.info("Initial administrator was created by another concurrent process")
         except Exception as e:
-            logger.error(f"? ???????????: {e}")
+            logger.error(f"Initial administrator creation failed: {e}")
 
     async def init_system_settings(self):
         """初始化系统设置"""

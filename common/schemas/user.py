@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from common.models.user import UserRole, UserStatus
 from common.schemas.common import TimestampSchema
+from common.utils.security import validate_strong_password
 
 
 class UserBase(BaseModel):
@@ -16,19 +17,23 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     verification_code: Optional[str] = Field(default=None, max_length=6, description="邮箱验证码")
-
-class PhoneRegister(BaseModel):
-    """???????"""
-    phone: str = Field(pattern=r"^1\d{10}$", description="11????")
-    password: str = Field(min_length=8, max_length=128, description="??8?????????????????")
-    geetest_challenge: str = Field(min_length=1, max_length=256, description="???????")
 
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, value: str) -> str:
-        from common.utils.security import validate_strong_password
+        return validate_strong_password(value)
+
+class PhoneRegister(BaseModel):
+    """Phone registration payload."""
+    phone: str = Field(pattern=r"^1\d{10}$", description="11-digit Chinese mainland phone number")
+    password: str = Field(min_length=8, max_length=128, description="At least 8 characters with upper/lowercase, number, and special character")
+    geetest_challenge: str = Field(min_length=1, max_length=256, description="Verified Geetest challenge")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
         return validate_strong_password(value)
 
 

@@ -420,7 +420,7 @@ class AIReplyEngine:
                 return await self._get_fallback_ai_settings(db_session)
             return settings
         except Exception as e:
-            logger.error(f"?{cookie_id}???AI????: {e}")
+            logger.error(f"Failed to load AI settings for account {cookie_id}: {e}")
             return self._get_default_settings()
 
     async def _get_fallback_ai_settings(self, db_session: AsyncSession) -> Dict[str, Any]:
