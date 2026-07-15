@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { MessageSquare, Phone, Lock, Eye, EyeOff } from 'lucide-react'
 import { AuthNavbar } from '@/components/common/AuthNavbar'
 import { registerByPhone } from '@/api/auth'
@@ -8,7 +8,6 @@ import { useUIStore } from '@/store/uiStore'
 import { ButtonLoading } from '@/components/common/Loading'
 
 export function Register() {
-  const navigate = useNavigate()
   const { addToast } = useUIStore()
 
   const [loading, setLoading] = useState(false)
@@ -37,14 +36,14 @@ export function Register() {
       return
     }
 
-    if (password.length < 6) {
-      addToast({ type: 'error', message: '密码长度至少6位' })
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,128}$/.test(password)) {
+      addToast({ type: 'error', message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character' })
       return
     }
 
     const geetestChallenge = geetestResult?.challenge
     if (!geetestChallenge) {
-      addToast({ type: 'error', message: '???????' })
+      addToast({ type: 'error', message: 'Complete the slider verification first' })
       return
     }
 
@@ -54,8 +53,8 @@ export function Register() {
       const result = await registerByPhone({ phone, password, geetest_challenge: geetestChallenge })
 
       if (result.success) {
-        addToast({ type: 'success', message: '注册成功，请登录' })
-        navigate('/login')
+        addToast({ type: 'success', message: 'Registration completed. Redirecting to login...' })
+        window.location.replace('/login?registered=1')
       } else {
         addToast({ type: 'error', message: result.message || '注册失败' })
       }
@@ -140,7 +139,7 @@ export function Register() {
               onSuccess={setGeetestResult}
               onError={() => setGeetestResult(null)}
               disabled={loading}
-              buttonText="?????????"
+              buttonText="Complete slider verification"
             />
 
             <button
