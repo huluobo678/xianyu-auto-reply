@@ -132,7 +132,7 @@ class DatabaseInitializer:
         ),
         (
             "auth.footer_ad_html",
-            "© 2026 划算云服务器 ·<a href=\"http://www.hsykj.com\" target=\"_BLANK\">www.hsykj.com</a>",
+            "公众号：云枢AI社",
             "登录页和注册页底部广告 HTML",
         ),
         (
@@ -3230,6 +3230,16 @@ class DatabaseInitializer:
                         )
                     except Exception as e:
                         logger.warning(f"设置 {key} 插入失败: {e}")
+
+                await session.execute(
+                    text("""
+                        UPDATE xy_system_settings
+                        SET value = :value, updated_at = NOW()
+                        WHERE `key` = 'auth.footer_ad_html'
+                          AND (value LIKE '%hsykj.com%' OR value REGEXP '[?]{3,}')
+                    """),
+                    {"value": "公众号：云枢AI社"},
+                )
                 
                 await session.commit()
                 logger.info(f"✓ 系统设置初始化完成，共 {len(self.DEFAULT_SETTINGS)} 项")

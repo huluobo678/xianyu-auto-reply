@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageSquare, Phone, Lock, Eye, EyeOff } from 'lucide-react'
+import { MessageSquare, Phone, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { AuthNavbar } from '@/components/common/AuthNavbar'
 import { registerByPhone } from '@/api/auth'
 import { GeetestCaptcha, type GeetestResult } from '@/components/common/GeetestCaptcha'
@@ -37,13 +37,13 @@ export function Register() {
     }
 
     if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,128}$/.test(password)) {
-      addToast({ type: 'error', message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character' })
+      addToast({ type: 'error', message: '密码至少 8 位，且必须包含大写字母、小写字母、数字和特殊字符' })
       return
     }
 
     const geetestChallenge = geetestResult?.challenge
     if (!geetestChallenge) {
-      addToast({ type: 'error', message: 'Complete the slider verification first' })
+      addToast({ type: 'error', message: '请先完成滑动验证' })
       return
     }
 
@@ -53,10 +53,12 @@ export function Register() {
       const result = await registerByPhone({ phone, password, geetest_challenge: geetestChallenge })
 
       if (result.success) {
-        addToast({ type: 'success', message: 'Registration completed. Redirecting to login...' })
+        addToast({ type: 'success', message: '注册成功，正在跳转登录页...' })
         window.location.replace('/login?registered=1')
       } else {
-        addToast({ type: 'error', message: result.message || '注册失败' })
+        addToast({ type: 'error', message: result.message || '注册失败，请稍后重试' })
+        setGeetestResult(null)
+        setGeetestKey((value) => value + 1)
       }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string; message?: string } } }
@@ -107,7 +109,7 @@ export function Register() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="至少6位字符"
+                  placeholder="至少 8 位，含大小写、数字和特殊字符"
                   className="input-ios pl-9 pr-9"
                 />
                 <button
@@ -139,8 +141,12 @@ export function Register() {
               onSuccess={setGeetestResult}
               onError={() => setGeetestResult(null)}
               disabled={loading}
-              buttonText="Complete slider verification"
+              buttonText="完成滑动验证"
             />
+            <div className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              <span>注册需要完成滑动验证；验证失败或注册失败时会自动刷新验证。</span>
+            </div>
 
             <button
               type="submit"
