@@ -14,6 +14,7 @@ from . import (
     admin,
     advertisements,
     ai,
+    ai_usage,
     announcements,
     auto_reply_logs,
     auth,
@@ -118,6 +119,7 @@ api_router.include_router(payment.router, tags=["支付管理"])  # 已定义pre
 # AI回复
 api_router.include_router(ai.router, prefix="/ai-reply-settings", tags=["AI回复"])
 api_router.include_router(ai.test_router, tags=["AI回复测试"])  # ai.py已定义prefix="/ai-reply-test"
+api_router.include_router(ai_usage.router)
 
 # 消息和回复
 api_router.include_router(message.router, prefix="/messages", tags=["消息管理"])
@@ -146,6 +148,7 @@ api_router.include_router(risk_control_logs.router, tags=["风控日志"])
 
 # 管理员功能
 api_router.include_router(admin.router, prefix="/admin", tags=["管理员功能"])
+api_router.include_router(ai_usage.admin_router, prefix="/admin")
 api_router.include_router(cookies_refresh_logs.router, prefix="/admin", tags=["COOKIES刷新日志"])
 api_router.include_router(api_cookie_renew_logs.router, prefix="/admin", tags=["接口续期Cookies日志"])
 

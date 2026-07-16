@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import time
 import traceback
@@ -32,6 +33,12 @@ from common.models.xy_order import XYOrder
 from common.db.session import async_session_maker
 from common.db.redis_client import distributed_lock
 from common.utils.default_reply_api import call_reply_api
+from common.services.ai_usage_service import (
+    AIAccountConcurrencyError,
+    AIAccountRateLimitError,
+    AIQuotaExceededError,
+    AIUsageService,
+)
 
 from app.services.xianyu.resource_manager import pause_manager
 from app.services.xianyu.auto_reply_log_service import AutoReplyLogService
@@ -847,14 +854,20 @@ class AutoReplyService:
             try:
                 # 取出待检测的发送 (future, mid)（临时键，不写入数据库）
                 pending_send_waiters = log_payload.pop("_pending_send_waiters", None)
+                ai_usage_request_id = log_payload.pop("_ai_usage_request_id", None)
                 log_id = await self._record_auto_reply_log(log_payload)
                 # 若消息已发出且日志写入成功，起后台任务异步等待发送结果并回写状态
-                if log_id and pending_send_waiters:
-                    self._spawn_send_status_writeback(log_id, pending_send_waiters)
+                if pending_send_waiters:
+                    self._spawn_send_status_writeback(log_id, pending_send_waiters, ai_usage_request_id)
+                elif ai_usage_request_id:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(usage_session, ai_usage_request_id, "not_sent")
             finally:
                 self._reply_trace_var.reset(reply_trace_token)
 
-    def _spawn_send_status_writeback(self, log_id: int, waiters: list) -> None:
+    def _spawn_send_status_writeback(
+        self, log_id: int | None, waiters: list, ai_usage_request_id: int | None = None
+    ) -> None:
         """起后台任务：异步等待发送结果并回写日志的发送状态
 
         不阻塞自动回复主流程。优先用实例的任务追踪器创建任务，
@@ -865,7 +878,7 @@ class AutoReplyService:
             waiters: 本次发出消息的 (send_future, mid) 列表
         """
         try:
-            coro = self._writeback_send_status(log_id, waiters)
+            coro = self._writeback_send_status(log_id, waiters, ai_usage_request_id)
             tracker = getattr(self.xianyu_instance, "_create_tracked_task", None)
             if callable(tracker):
                 tracker(coro)
@@ -875,7 +888,9 @@ class AutoReplyService:
         except Exception as e:
             logger.warning(f"【{self.cookie_id}】启动发送状态回写任务失败 log_id={log_id}: {e}")
 
-    async def _writeback_send_status(self, log_id: int, waiters: list) -> None:
+    async def _writeback_send_status(
+        self, log_id: int | None, waiters: list, ai_usage_request_id: int | None = None
+    ) -> None:
         """等待各发送响应，按结果回写日志发送状态
 
         - 任一消息被服务端拦截（返回 reason）→ send_status=failed，记录失败原因
@@ -886,24 +901,54 @@ class AutoReplyService:
             waiters: 本次发出消息的 (send_future, mid) 列表
         """
         try:
+            outcome_fn = getattr(self.xianyu_instance, "wait_send_outcome", None)
             wait_fn = getattr(self.xianyu_instance, "wait_send_reject_reason", None)
-            if not callable(wait_fn):
+            if not callable(outcome_fn) and not callable(wait_fn):
+                if ai_usage_request_id:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(usage_session, ai_usage_request_id, "ack_unavailable")
                 return
             reasons: List[str] = []
+            has_unknown = False
             for send_future, mid in waiters:
-                reason = await wait_fn(send_future, mid)
-                if reason:
+                if callable(outcome_fn):
+                    outcome, reason = await outcome_fn(send_future, mid)
+                    has_unknown = has_unknown or outcome == "unknown"
+                else:
+                    reason = await wait_fn(send_future, mid)
+                    outcome = "failed" if reason else "unknown"
+                    has_unknown = has_unknown or outcome == "unknown"
+                if outcome == "failed" and reason:
                     reasons.append(reason)
             if reasons:
+                if ai_usage_request_id:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(usage_session, ai_usage_request_id, "send_failed")
                 await self.auto_reply_log_service.safe_update_send_status(
                     log_id, "failed", "；".join(reasons)
                 )
                 logger.warning(
                     f"【{self.cookie_id}】自动回复发送被拦截 log_id={log_id}: {'；'.join(reasons)}"
                 )
+            elif has_unknown:
+                await self.auto_reply_log_service.safe_update_send_status(log_id, "timeout", "send unconfirmed")
+                if ai_usage_request_id:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(usage_session, ai_usage_request_id, "send_unconfirmed")
             else:
                 await self.auto_reply_log_service.safe_update_send_status(log_id, "success", None)
+                if ai_usage_request_id:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.commit(usage_session, ai_usage_request_id, log_id)
         except Exception as e:
+            if ai_usage_request_id:
+                try:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(
+                            usage_session, ai_usage_request_id, "writeback_exception"
+                        )
+                except Exception:
+                    pass
             logger.warning(f"【{self.cookie_id}】回写发送状态异常 log_id={log_id}: {e}")
 
     async def _send_text_with_separator(
@@ -1787,6 +1832,7 @@ class AutoReplyService:
             AI回复内容,None表示不使用AI回复
         """
         reply_trace = self._reply_trace_var.get()
+        ai_usage_request_id: int | None = None
         try:
             from app.services.xianyu.ai_reply_engine import get_ai_reply_engine
             
@@ -1860,6 +1906,35 @@ class AutoReplyService:
             if reply_trace is not None:
                 reply_trace.setdefault("context_snapshot", {})["ai_item_info"] = item_info
             
+            source_message_id = reply_trace.get("source_message_id") if reply_trace else None
+            identity_source = source_message_id or hashlib.sha256(
+                f"{self.cookie_id}|{chat_id}|{send_user_id}|{send_message}".encode("utf-8")
+            ).hexdigest()
+            try:
+                async with async_session_maker() as usage_session:
+                    reservation = await AIUsageService.reserve(
+                        usage_session,
+                        account_id=self.cookie_id,
+                        idempotency_key=f"ai:{account.id}:{identity_source}"[:191],
+                        source_message_id=source_message_id,
+                        chat_id=chat_id,
+                    )
+                if reservation.duplicate:
+                    if reply_trace is not None:
+                        reply_trace.setdefault("context_snapshot", {})["ai_blocked_reason"] = "duplicate_request"
+                    return None
+                ai_usage_request_id = reservation.request_id
+                if reply_trace is not None:
+                    reply_trace["_ai_usage_request_id"] = ai_usage_request_id
+            except AIQuotaExceededError:
+                if reply_trace is not None:
+                    reply_trace.setdefault("context_snapshot", {})["ai_blocked_reason"] = "quota_exhausted"
+                return None
+            except (AIAccountConcurrencyError, AIAccountRateLimitError) as limit_error:
+                if reply_trace is not None:
+                    reply_trace.setdefault("context_snapshot", {})["ai_blocked_reason"] = type(limit_error).__name__
+                return None
+
             reply = await ai_engine.generate_reply(
                 message=send_message,
                 item_info=item_info,
@@ -1872,6 +1947,20 @@ class AutoReplyService:
             )
             
             if reply:
+                usage_metadata = ai_engine.get_usage_metadata()
+                async with async_session_maker() as usage_session:
+                    await AIUsageService.attach_generation(
+                        usage_session,
+                        ai_usage_request_id,
+                        model_name=usage_metadata.get("model_name") or ai_settings.get("model_name"),
+                        provider_name=usage_metadata.get("provider_name") or ai_provider_name,
+                        latency_ms=int(usage_metadata.get("latency_ms") or 0),
+                        input_tokens=usage_metadata.get("input_tokens"),
+                        output_tokens=usage_metadata.get("output_tokens"),
+                        input_text=send_message,
+                        output_text=reply,
+                        token_source=usage_metadata.get("token_source"),
+                    )
                 logger.info(f"【{self.cookie_id}】AI回复生成成功: {reply[:50]}...")
                 if reply_trace is not None:
                     reply_trace["reply_strategy"] = "ai"
@@ -1882,9 +1971,22 @@ class AutoReplyService:
                 return reply
 
             logger.debug(f"【{self.cookie_id}】AI回复生成失败或返回空")
+            if ai_usage_request_id:
+                async with async_session_maker() as usage_session:
+                    await AIUsageService.release(usage_session, ai_usage_request_id, "generation_failed")
+                if reply_trace is not None:
+                    reply_trace.pop("_ai_usage_request_id", None)
             return None
             
         except Exception as e:
+            if ai_usage_request_id:
+                try:
+                    async with async_session_maker() as usage_session:
+                        await AIUsageService.release(usage_session, ai_usage_request_id, "exception")
+                except Exception:
+                    pass
+                if reply_trace is not None:
+                    reply_trace.pop("_ai_usage_request_id", None)
             logger.error(f"【{self.cookie_id}】获取AI回复失败: {e}")
             return None
 

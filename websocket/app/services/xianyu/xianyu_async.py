@@ -1917,6 +1917,28 @@ class XianyuAsync:
             if mid:
                 self._pending_mid_futures.pop(mid, None)
 
+    async def wait_send_outcome(
+        self,
+        send_future: "asyncio.Future",
+        mid: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> tuple[str, Optional[str]]:
+        """Return confirmed, failed, or unknown for a platform send."""
+        if send_future is None:
+            return "unknown", None
+        try:
+            response = await asyncio.wait_for(send_future, timeout=timeout)
+            reason = self._extract_send_reject_reason(response)
+            return ("failed", reason) if reason else ("confirmed", None)
+        except asyncio.TimeoutError:
+            return "unknown", None
+        except Exception as exc:
+            logger.warning(f"【{self.cookie_id}】检测发送确认异常: {self._safe_str(exc)}")
+            return "unknown", None
+        finally:
+            if mid:
+                self._pending_mid_futures.pop(mid, None)
+
     @staticmethod
     def _extract_send_reject_reason(response: dict) -> Optional[str]:
         """从发送响应中提取拦截原因，未被拦截返回 None

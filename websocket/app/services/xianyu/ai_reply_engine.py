@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextvars import ContextVar
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -59,10 +60,38 @@ class AIReplyEngine:
         self._chat_locks: Dict[str, asyncio.Lock] = {}
         self._chat_locks_usage_time: Dict[str, float] = {}  # 锁使用时间记录
         self._chat_locks_lock = asyncio.Lock()
+        self._usage_metadata: ContextVar[Dict[str, Any]] = ContextVar("ai_usage_metadata", default={})
         self._chat_locks_max_size = 10000  # 最大锁数量
         self._chat_locks_expire_time = 7200  # 锁过期时间（2小时）
         logger.info("AI回复引擎初始化完成")
     
+    def _set_usage_metadata(self, **values: Any) -> None:
+        current = dict(self._usage_metadata.get() or {})
+        current.update({key: value for key, value in values.items() if value is not None})
+        self._usage_metadata.set(current)
+
+    def get_usage_metadata(self) -> Dict[str, Any]:
+        return dict(self._usage_metadata.get() or {})
+
+    @staticmethod
+    def _read_usage_value(usage: Any, *names: str) -> Optional[int]:
+        for name in names:
+            value = usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+            if value is not None:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    @staticmethod
+    def _resolve_token_source(input_tokens: Optional[int], output_tokens: Optional[int]) -> str:
+        if input_tokens is not None and output_tokens is not None:
+            return "upstream"
+        if input_tokens is not None or output_tokens is not None:
+            return "mixed_estimated"
+        return "estimated"
+
     @classmethod
     def get_instance(cls) -> "AIReplyEngine":
         """获取单例实例"""
@@ -502,6 +531,14 @@ class AIReplyEngine:
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
+            usage = getattr(response, "usage", None)
+            input_tokens = self._read_usage_value(usage, "prompt_tokens", "input_tokens")
+            output_tokens = self._read_usage_value(usage, "completion_tokens", "output_tokens")
+            self._set_usage_metadata(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                token_source=self._resolve_token_source(input_tokens, output_tokens),
+            )
 
             choice = response.choices[0]
             message = choice.message
@@ -593,6 +630,14 @@ class AIReplyEngine:
                 response = await client.post(url, headers=headers, json=data)
                 response.raise_for_status()
                 result = response.json()
+            usage = result.get("usage") or result.get("output", {}).get("usage")
+            input_tokens = self._read_usage_value(usage, "input_tokens", "prompt_tokens")
+            output_tokens = self._read_usage_value(usage, "output_tokens", "completion_tokens")
+            self._set_usage_metadata(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                token_source=self._resolve_token_source(input_tokens, output_tokens),
+            )
             
             if "output" in result and "text" in result["output"]:
                 reply_text = self._normalize_text(result["output"]["text"])
@@ -659,6 +704,14 @@ class AIReplyEngine:
                 response = await client.post(url, headers=headers, params={"key": api_key}, json=payload)
                 response.raise_for_status()
                 result = response.json()
+            usage = result.get("usageMetadata") or {}
+            input_tokens = self._read_usage_value(usage, "promptTokenCount")
+            output_tokens = self._read_usage_value(usage, "candidatesTokenCount")
+            self._set_usage_metadata(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                token_source=self._resolve_token_source(input_tokens, output_tokens),
+            )
             
             reply_text = result["candidates"][0]["content"]["parts"][0]["text"]
             normalized_reply = self._normalize_text(reply_text)
@@ -714,6 +767,14 @@ class AIReplyEngine:
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 result = response.json()
+            usage = result.get("usage") or {}
+            input_tokens = self._read_usage_value(usage, "input_tokens")
+            output_tokens = self._read_usage_value(usage, "output_tokens")
+            self._set_usage_metadata(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                token_source=self._resolve_token_source(input_tokens, output_tokens),
+            )
             
             content_parts = result.get("content", []) if isinstance(result, dict) else []
             for item in content_parts:
@@ -926,6 +987,11 @@ class AIReplyEngine:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
+                self._usage_metadata.set({})
+                self._set_usage_metadata(
+                    input_tokens=max(1, len(json.dumps(messages, ensure_ascii=False)) * 2),
+                    token_source="estimated",
+                )
                 
                 # 调用AI生成回复
                 reply = None
@@ -938,6 +1004,10 @@ class AIReplyEngine:
                 
                 # 识别AI服务商
                 provider_name = self._get_api_provider_name(settings)
+                self._set_usage_metadata(
+                    model_name=settings.get("model_name"),
+                    provider_name=provider_name,
+                )
                 logger.info(f"【{cookie_id}】AI设置: 服务商={provider_name}, model={settings.get('model_name')}, api_key长度={len(api_key)}")
                 
                 provider_type = normalize_ai_provider_type(
@@ -946,6 +1016,7 @@ class AIReplyEngine:
                     settings.get("model_name"),
                 )
                 logger.info(f"【{cookie_id}】使用{provider_name} API生成回复 (provider_type={provider_type})")
+                call_started_at = time.perf_counter()
                 if provider_type == "dashscope_app":
                     reply = await self._call_dashscope_api(settings, messages)
                 elif provider_type == "gemini":
@@ -954,6 +1025,7 @@ class AIReplyEngine:
                     reply = await self._call_anthropic_api(settings, messages)
                 else:
                     reply = await self._call_openai_api(settings, messages)
+                self._set_usage_metadata(latency_ms=int((time.perf_counter() - call_started_at) * 1000))
                 
                 if reply:
                     # 二次检测：大模型返回后，若人工已介入暂停，则放弃本次回复

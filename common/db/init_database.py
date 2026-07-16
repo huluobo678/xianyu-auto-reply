@@ -1636,6 +1636,92 @@ class DatabaseInitializer:
                 INDEX idx_chat_quick_phrase_owner_sort (owner_id, sort_order)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='在线聊天快捷短语';
         """,
+        "xy_ai_quota_configs": """
+            CREATE TABLE IF NOT EXISTS xy_ai_quota_configs (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                user_id BIGINT NOT NULL,
+                package_quota BIGINT NOT NULL DEFAULT 0,
+                independent_quota BIGINT NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_ai_quota_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """,
+        "xy_ai_account_quota_configs": """
+            CREATE TABLE IF NOT EXISTS xy_ai_account_quota_configs (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                account_pk BIGINT NOT NULL,
+                monthly_quota BIGINT DEFAULT NULL,
+                requests_per_minute INT NOT NULL DEFAULT 60,
+                max_concurrency INT NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_ai_account_quota (account_pk)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """,
+        "xy_ai_user_monthly_usage": """
+            CREATE TABLE IF NOT EXISTS xy_ai_user_monthly_usage (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                user_id BIGINT NOT NULL,
+                period_start DATE NOT NULL,
+                effective_replies BIGINT NOT NULL DEFAULT 0,
+                reserved_replies BIGINT NOT NULL DEFAULT 0,
+                estimated_cost DECIMAL(18,8) NOT NULL DEFAULT 0,
+                warned_80_at DATETIME DEFAULT NULL,
+                warned_100_at DATETIME DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_ai_user_usage_period (user_id, period_start),
+                INDEX idx_ai_user_usage_period (period_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """,
+        "xy_ai_account_monthly_usage": """
+            CREATE TABLE IF NOT EXISTS xy_ai_account_monthly_usage (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                account_pk BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                period_start DATE NOT NULL,
+                effective_replies BIGINT NOT NULL DEFAULT 0,
+                reserved_replies BIGINT NOT NULL DEFAULT 0,
+                estimated_cost DECIMAL(18,8) NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_ai_account_usage_period (account_pk, period_start),
+                INDEX idx_ai_account_usage_user_period (user_id, period_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """,
+        "xy_ai_usage_requests": """
+            CREATE TABLE IF NOT EXISTS xy_ai_usage_requests (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                idempotency_key VARCHAR(191) NOT NULL,
+                user_id BIGINT NOT NULL,
+                account_pk BIGINT NOT NULL,
+                account_id VARCHAR(80) NOT NULL,
+                period_start DATE NOT NULL,
+                source_message_id VARCHAR(128) DEFAULT NULL,
+                chat_id VARCHAR(128) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'reserved',
+                release_reason VARCHAR(64) DEFAULT NULL,
+                model_name VARCHAR(120) DEFAULT NULL,
+                provider_name VARCHAR(80) DEFAULT NULL,
+                requested_at DATETIME DEFAULT NULL,
+                latency_ms INT DEFAULT NULL,
+                input_tokens BIGINT DEFAULT NULL,
+                output_tokens BIGINT DEFAULT NULL,
+                token_source VARCHAR(20) DEFAULT NULL,
+                estimated_cost DECIMAL(18,8) NOT NULL DEFAULT 0,
+                auto_reply_log_id BIGINT DEFAULT NULL,
+                committed_at DATETIME DEFAULT NULL,
+                released_at DATETIME DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_ai_usage_idempotency (idempotency_key),
+                INDEX idx_ai_usage_user_period (user_id, period_start),
+                INDEX idx_ai_usage_account_period (account_pk, period_start),
+                INDEX idx_ai_usage_status_created (status, created_at),
+                INDEX idx_ai_usage_log (auto_reply_log_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        """,
     }
     
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
