@@ -253,6 +253,15 @@ class AutoReplyService:
     async def _record_auto_reply_log(self, log_payload: Dict[str, Any]) -> int | None:
         """写入自动回复日志，返回日志主键ID（供异步回写发送状态）"""
         return await self.auto_reply_log_service.record_message(log_payload)
+
+    async def _record_auto_reply_log_safely(self, log_payload: Dict[str, Any]) -> int | None:
+        try:
+            return await self._record_auto_reply_log(log_payload)
+        except Exception as log_error:
+            logger.warning(
+                f"【{self.cookie_id}】自动回复日志写入失败，继续确认发送结果: {log_error}"
+            )
+            return None
     
     # ==================== 消息去重功能(参照旧框架reply_scheduler.py) ====================
     
@@ -807,7 +816,6 @@ class AutoReplyService:
                     log_payload["_pending_send_waiters"] = [
                         (result.get("send_future"), result.get("mid"))
                         for result in send_results
-                        if result.get("send_future") is not None
                     ]
                 else:
                     log_payload["process_status"] = "failed"
@@ -855,7 +863,7 @@ class AutoReplyService:
                 # 取出待检测的发送 (future, mid)（临时键，不写入数据库）
                 pending_send_waiters = log_payload.pop("_pending_send_waiters", None)
                 ai_usage_request_id = log_payload.pop("_ai_usage_request_id", None)
-                log_id = await self._record_auto_reply_log(log_payload)
+                log_id = await self._record_auto_reply_log_safely(log_payload)
                 # 若消息已发出且日志写入成功，起后台任务异步等待发送结果并回写状态
                 if pending_send_waiters:
                     self._spawn_send_status_writeback(log_id, pending_send_waiters, ai_usage_request_id)
@@ -881,7 +889,11 @@ class AutoReplyService:
             coro = self._writeback_send_status(log_id, waiters, ai_usage_request_id)
             tracker = getattr(self.xianyu_instance, "_create_tracked_task", None)
             if callable(tracker):
-                tracker(coro)
+                try:
+                    tracker(coro)
+                except Exception:
+                    import asyncio
+                    asyncio.create_task(coro)
             else:
                 import asyncio
                 asyncio.create_task(coro)
@@ -900,6 +912,7 @@ class AutoReplyService:
             log_id: 日志主键ID
             waiters: 本次发出消息的 (send_future, mid) 列表
         """
+        usage_committed = False
         try:
             outcome_fn = getattr(self.xianyu_instance, "wait_send_outcome", None)
             wait_fn = getattr(self.xianyu_instance, "wait_send_reject_reason", None)
@@ -936,12 +949,14 @@ class AutoReplyService:
                     async with async_session_maker() as usage_session:
                         await AIUsageService.release(usage_session, ai_usage_request_id, "send_unconfirmed")
             else:
-                await self.auto_reply_log_service.safe_update_send_status(log_id, "success", None)
                 if ai_usage_request_id:
                     async with async_session_maker() as usage_session:
-                        await AIUsageService.commit(usage_session, ai_usage_request_id, log_id)
+                        usage_committed = await AIUsageService.commit(
+                            usage_session, ai_usage_request_id, log_id
+                        )
+                await self.auto_reply_log_service.safe_update_send_status(log_id, "success", None)
         except Exception as e:
-            if ai_usage_request_id:
+            if ai_usage_request_id and not usage_committed:
                 try:
                     async with async_session_maker() as usage_session:
                         await AIUsageService.release(
@@ -1147,7 +1162,13 @@ class AutoReplyService:
                     return keyword_reply
                 
                 ai_reply = await self.get_ai_reply(
-                    session, send_user_name, send_user_id, send_message, item_id, chat_id
+                    session,
+                    send_user_name,
+                    send_user_id,
+                    send_message,
+                    item_id,
+                    chat_id,
+                    msg_time,
                 )
                 if ai_reply:
                     return ai_reply
@@ -1817,6 +1838,7 @@ class AutoReplyService:
         send_message: str,
         item_id: Optional[str],
         chat_id: str,
+        msg_time: str = "",
     ) -> Optional[str]:
         """获取AI回复
         
@@ -1908,7 +1930,7 @@ class AutoReplyService:
             
             source_message_id = reply_trace.get("source_message_id") if reply_trace else None
             identity_source = source_message_id or hashlib.sha256(
-                f"{self.cookie_id}|{chat_id}|{send_user_id}|{send_message}".encode("utf-8")
+                f"{self.cookie_id}|{chat_id}|{send_user_id}|{msg_time}|{send_message}".encode("utf-8")
             ).hexdigest()
             try:
                 async with async_session_maker() as usage_session:

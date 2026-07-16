@@ -1929,7 +1929,11 @@ class XianyuAsync:
         try:
             response = await asyncio.wait_for(send_future, timeout=timeout)
             reason = self._extract_send_reject_reason(response)
-            return ("failed", reason) if reason else ("confirmed", None)
+            if reason:
+                return "failed", reason
+            if self._is_send_success_response(response):
+                return "confirmed", None
+            return "unknown", None
         except asyncio.TimeoutError:
             return "unknown", None
         except Exception as exc:
@@ -1938,6 +1942,26 @@ class XianyuAsync:
         finally:
             if mid:
                 self._pending_mid_futures.pop(mid, None)
+
+    @staticmethod
+    def _is_send_success_response(response: dict) -> bool:
+        if not isinstance(response, dict):
+            return False
+
+        success_values = {0, 200, "0", "200", "SUCCESS", "success"}
+        containers = [
+            container
+            for container in (response, response.get("body"))
+            if isinstance(container, dict)
+        ]
+        if any(container.get("success") is False for container in containers):
+            return False
+        for container in containers:
+            if container.get("success") is True:
+                return True
+            if container.get("code") in success_values:
+                return True
+        return False
 
     @staticmethod
     def _extract_send_reject_reason(response: dict) -> Optional[str]:

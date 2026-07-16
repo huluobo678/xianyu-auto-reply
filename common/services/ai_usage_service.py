@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -17,6 +17,7 @@ from common.utils.time_utils import get_beijing_now_naive
 
 DEFAULT_ACCOUNT_RPM = 60
 DEFAULT_ACCOUNT_CONCURRENCY = 1
+RESERVATION_TIMEOUT = timedelta(minutes=15)
 INPUT_COST_PER_MILLION = Decimal(10)
 OUTPUT_COST_PER_MILLION = Decimal(30)
 
@@ -66,7 +67,9 @@ class AIUsageService:
     @staticmethod
     async def _reserve_transaction(session, account_id, key, source_id, chat_id, now, period):
         async with session.begin():
-            request = await session.scalar(select(AIUsageRequest).where(AIUsageRequest.idempotency_key == key).with_for_update())
+            request = await session.scalar(
+                select(AIUsageRequest).where(AIUsageRequest.idempotency_key == key)
+            )
             if request:
                 return AIReservation(request.id, key, True)
             account = await session.scalar(select(XYAccount).where(XYAccount.account_id == account_id).with_for_update())
@@ -82,6 +85,9 @@ class AIUsageService:
 
     @staticmethod
     async def _reserve_locked(session, account, period, key, source_id, chat_id, now):
+        stale_ids = await AIUsageService._lock_stale_reservation_ids(
+            session, account.id, account.owner_id, period, now
+        )
         user_usage = await session.scalar(
             select(AIUserMonthlyUsage).where(
                 AIUserMonthlyUsage.user_id == account.owner_id,
@@ -96,6 +102,9 @@ class AIUsageService:
         )
         user_config = await session.scalar(select(AIQuotaConfig).where(AIQuotaConfig.user_id == account.owner_id))
         account_config = await session.scalar(select(AIAccountQuotaConfig).where(AIAccountQuotaConfig.account_pk == account.id))
+        await AIUsageService._release_stale_reservations_locked(
+            session, account, user_usage, account_usage, stale_ids, now
+        )
         AIUsageService._check_quota(user_usage, AIUsageService._get_user_quota(user_config), "user")
         AIUsageService._check_quota(account_usage, account_config.monthly_quota if account_config else None, "account")
         concurrency = account_config.max_concurrency if account_config else DEFAULT_ACCOUNT_CONCURRENCY
@@ -106,7 +115,6 @@ class AIUsageService:
             select(func.count(AIUsageRequest.id)).where(
                 AIUsageRequest.account_pk == account.id,
                 AIUsageRequest.created_at >= now - timedelta(minutes=1),
-                AIUsageRequest.status.in_(("reserved", "committed")),
             )
         )
         if int(recent_count or 0) >= max(1, rpm):
@@ -127,6 +135,60 @@ class AIUsageService:
         account_usage.reserved_replies += 1
         await session.flush()
         return AIReservation(request.id, key)
+
+    @staticmethod
+    async def _lock_stale_reservation_ids(
+        session: AsyncSession,
+        account_pk: int,
+        user_id: int,
+        period: date,
+        now: datetime,
+    ) -> list[int]:
+        return list(
+            await session.scalars(
+                select(AIUsageRequest.id)
+                .where(
+                    AIUsageRequest.account_pk == account_pk,
+                    AIUsageRequest.user_id == user_id,
+                    AIUsageRequest.period_start == period,
+                    AIUsageRequest.status == "reserved",
+                    AIUsageRequest.requested_at < now - RESERVATION_TIMEOUT,
+                )
+                .with_for_update()
+            )
+        )
+
+    @staticmethod
+    async def _release_stale_reservations_locked(
+        session: AsyncSession,
+        account: XYAccount,
+        user_usage: AIUserMonthlyUsage,
+        account_usage: AIAccountMonthlyUsage,
+        stale_ids: list[int],
+        now: datetime,
+    ) -> int:
+        if not stale_ids:
+            return 0
+
+        stale_count = len(stale_ids)
+        await session.execute(
+            update(AIUsageRequest)
+            .where(
+                AIUsageRequest.id.in_(stale_ids),
+                AIUsageRequest.status == "reserved",
+            )
+            .values(
+                status="released",
+                release_reason="reservation_expired",
+                released_at=now,
+            )
+        )
+        user_usage.reserved_replies = max(0, user_usage.reserved_replies - stale_count)
+        account_usage.reserved_replies = max(0, account_usage.reserved_replies - stale_count)
+        logger.warning(
+            f"Released {stale_count} stale AI reservations for account_pk={account.id}"
+        )
+        return stale_count
 
     @staticmethod
     async def attach_generation(

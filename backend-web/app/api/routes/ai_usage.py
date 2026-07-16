@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,7 +63,7 @@ async def admin_list_ai_usage(
     _: User = Depends(deps.get_current_admin_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    target_period = period or current_period_start()
+    target_period = date(period.year, period.month, 1) if period else current_period_start()
     stmt = select(AIAccountMonthlyUsage, XYAccount).join(
         XYAccount, XYAccount.id == AIAccountMonthlyUsage.account_pk
     ).where(AIAccountMonthlyUsage.period_start == target_period)
@@ -110,7 +110,7 @@ async def admin_list_ai_usage_requests(
     _: User = Depends(deps.get_current_admin_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    target_period = period or current_period_start()
+    target_period = date(period.year, period.month, 1) if period else current_period_start()
     stmt = select(AIUsageRequest).where(AIUsageRequest.period_start == target_period)
     if user_id is not None:
         stmt = stmt.where(AIUsageRequest.user_id == user_id)
@@ -149,6 +149,8 @@ async def update_user_ai_quota(
     _: User = Depends(deps.get_current_admin_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    if await session.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
     config = await session.scalar(select(AIQuotaConfig).where(AIQuotaConfig.user_id == user_id))
     if config:
         config.package_quota = payload.package_quota
@@ -170,6 +172,8 @@ async def update_account_ai_quota(
     _: User = Depends(deps.get_current_admin_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    if await session.get(XYAccount, account_pk) is None:
+        raise HTTPException(status_code=404, detail="Account not found")
     config = await session.scalar(select(AIAccountQuotaConfig).where(AIAccountQuotaConfig.account_pk == account_pk))
     if not config:
         config = AIAccountQuotaConfig(account_pk=account_pk)
