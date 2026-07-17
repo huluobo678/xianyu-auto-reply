@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import warnings
@@ -29,6 +30,13 @@ from common.db.default_publish_addresses import (
     build_default_publish_addresses,
 )
 from common.db.session import async_engine, async_session_maker
+from common.models.billing import (
+    AIQuotaGrant, AIQuotaPackage, BillingOrder, BillingPlan,
+    BillingPlanPrice, EntitlementLedger, UserSubscription,
+)
+from common.services.billing_catalog import (
+    AI_QUOTA_PACKAGES, DEFAULT_FEATURE_FLAGS, PLAN_CATALOG, PLAN_PRICES,
+)
 from common.utils.time_utils import get_beijing_now_naive
 from common.utils.security import generate_secret_key, get_password_hash, is_strong_password
 
@@ -43,8 +51,6 @@ def suppress_db_warnings():
     - Duplicate entry 'xxx' for key 'PRIMARY'
     """
     # 保存原始日志级别
-    sqlalchemy_logger = logging.getLogger('sqlalchemy.engine')
-    original_level = sqlalchemy_logger.level
     
     # 过滤MySQL警告
     warnings.filterwarnings('ignore', category=SAWarning)
@@ -1914,6 +1920,9 @@ class DatabaseInitializer:
                 
                 # 3. 初始化系统设置
                 await self.init_system_settings()
+
+                # 3.1 初始化套餐、价格和 AI 加量包
+                await self.init_billing_catalog()
                 
                 # 4. 初始化定时任务配置
                 await self.init_scheduled_tasks()
@@ -1965,11 +1974,27 @@ class DatabaseInitializer:
         logger.info(f"数据表创建完成，共 {len(self.TABLES_DDL)} 张表")
         
         # 执行字段迁移
+        await self.create_billing_tables()
         await self.migrate_columns()
         
         # 执行索引迁移
         await self.migrate_indexes()
     
+    async def create_billing_tables(self):
+        tables = (
+            BillingPlan.__table__, BillingPlanPrice.__table__,
+            AIQuotaPackage.__table__, BillingOrder.__table__,
+            UserSubscription.__table__, AIQuotaGrant.__table__,
+            EntitlementLedger.__table__,
+        )
+        async with async_engine.begin() as conn:
+            for table in tables:
+                await conn.run_sync(
+                    lambda sync_conn, value=table: value.create(
+                        sync_conn, checkfirst=True
+                    )
+                )
+
     async def rename_legacy_tables(self):
         """重命名旧表（统一加 xy_ 前缀）"""
         async with async_engine.begin() as conn:
@@ -3332,6 +3357,63 @@ class DatabaseInitializer:
                 
         except Exception as e:
             logger.error(f"✗ 初始化系统设置失败: {e}")
+
+    async def init_billing_catalog(self):
+        async with async_session_maker() as session:
+            plan_ids = {}
+            for plan in PLAN_CATALOG:
+                params = dict(plan)
+                params['feature_flags'] = json.dumps(DEFAULT_FEATURE_FLAGS[plan['code']])
+                await session.execute(text("""
+                    INSERT INTO xy_billing_plans
+                    (code, name, account_limit, monthly_ai_quota,
+                     feature_flags, is_free, enabled, sort_order)
+                    VALUES (:code, :name, :account_limit, :monthly_ai_quota,
+                            :feature_flags, :is_free, 1, :sort_order)
+                    ON DUPLICATE KEY UPDATE
+                    name=VALUES(name), account_limit=VALUES(account_limit),
+                    monthly_ai_quota=VALUES(monthly_ai_quota),
+                    feature_flags=VALUES(feature_flags),
+                    is_free=VALUES(is_free), sort_order=VALUES(sort_order)
+                """), params)
+                result = await session.execute(
+                    text('SELECT id FROM xy_billing_plans WHERE code=:code'),
+                    {'code': plan['code']},
+                )
+                plan_ids[plan['code']] = result.scalar_one()
+
+            for code, cycle, months, amount in PLAN_PRICES:
+                await session.execute(text("""
+                    INSERT INTO xy_billing_plan_prices
+                    (plan_id, billing_cycle, duration_months, amount,
+                     currency, enabled)
+                    VALUES (:plan_id, :cycle, :months, :amount, 'CNY', 1)
+                    ON DUPLICATE KEY UPDATE
+                    duration_months=VALUES(duration_months),
+                    amount=VALUES(amount), enabled=VALUES(enabled)
+                """), {
+                    'plan_id': plan_ids[code], 'cycle': cycle,
+                    'months': months, 'amount': amount,
+                })
+
+            for code, name, base, bonus, amount, days, sort_order in AI_QUOTA_PACKAGES:
+                await session.execute(text("""
+                    INSERT INTO xy_ai_quota_packages
+                    (code, name, base_quota, bonus_quota, amount,
+                     validity_days, enabled, sort_order)
+                    VALUES (:code, :name, :base, :bonus, :amount,
+                            :days, 1, :sort_order)
+                    ON DUPLICATE KEY UPDATE
+                    name=VALUES(name), base_quota=VALUES(base_quota),
+                    bonus_quota=VALUES(bonus_quota), amount=VALUES(amount),
+                    validity_days=VALUES(validity_days),
+                    sort_order=VALUES(sort_order)
+                """), {
+                    'code': code, 'name': name, 'base': base,
+                    'bonus': bonus, 'amount': amount,
+                    'days': days, 'sort_order': sort_order,
+                })
+            await session.commit()
 
     async def init_scheduled_tasks(self):
         """初始化定时任务配置"""

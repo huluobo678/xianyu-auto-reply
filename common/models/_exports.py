@@ -70,7 +70,24 @@ from common.models.ai_usage import (
     AIUsageRequest,
 )
 
+from common.models.billing import (
+    AIQuotaGrant,
+    AIQuotaPackage,
+    BillingOrder,
+    BillingPlan,
+    BillingPlanPrice,
+    EntitlementLedger,
+    UserSubscription,
+)
+
 __all__ = [
+    "BillingPlan",
+    "BillingPlanPrice",
+    "AIQuotaPackage",
+    "BillingOrder",
+    "UserSubscription",
+    "AIQuotaGrant",
+    "EntitlementLedger",
     "User",
     "UserRole",
     "UserStatus",
