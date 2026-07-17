@@ -53,12 +53,14 @@ class AIQuotaPackage(RecordMixin, Base):
 class BillingOrder(RecordMixin, Base):
     __tablename__ = 'xy_billing_orders'
     __table_args__ = (
+        UniqueConstraint('user_id', 'request_key', name='uk_billing_order_request'),
         Index('idx_billing_order_user_created', 'user_id', 'created_at'),
         Index('idx_billing_order_status_created', 'status', 'created_at'),
     )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    request_key: Mapped[str] = mapped_column(String(64), nullable=False)
     product_type: Mapped[str] = mapped_column(String(24), nullable=False)
     product_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     product_code: Mapped[str] = mapped_column(String(32), nullable=False)

@@ -1732,6 +1732,9 @@ class DatabaseInitializer:
     
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
     COLUMN_MIGRATIONS = {
+        "xy_billing_orders": [
+            ("request_key", "VARCHAR(64) DEFAULT NULL", "user_id"),
+        ],
         "xy_listing_monitor_tasks": [
             ("monitor_type", "VARCHAR(20) NOT NULL DEFAULT 'listing' COMMENT '监控类型：listing-上新监控，price_drop-降价监控'", "owner_id"),
             ("category_id", "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类）'", "owner_id"),
@@ -2167,6 +2170,22 @@ class DatabaseInitializer:
         logger.info("检查索引迁移...")
         
         async with async_engine.begin() as conn:
+            try:
+                result = await conn.execute(text("""
+                    SELECT COUNT(*) FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'xy_billing_orders'
+                    AND INDEX_NAME = 'uk_billing_order_request'
+                """))
+                if result.scalar() == 0:
+                    await conn.execute(text("""
+                        ALTER TABLE xy_billing_orders
+                        ADD UNIQUE KEY uk_billing_order_request
+                        (user_id, request_key)
+                    """))
+            except Exception as exc:
+                logger.warning(f'billing order index migration failed: {exc}')
+
             try:
                 # xy_card_item_relations: 将旧的 uk_card_item(card_id, item_id) 替换为 uk_card_item_dock(card_id, item_id, dock_record_id)
                 # 检查旧索引是否存在

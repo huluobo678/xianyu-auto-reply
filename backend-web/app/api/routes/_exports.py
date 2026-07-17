@@ -20,6 +20,7 @@ from . import (
     auth,
     auto_rate,
     blacklist,
+    billing,
     captcha,
     cards,
     card_dock,
@@ -119,6 +120,7 @@ api_router.include_router(payment.router, tags=["支付管理"])  # 已定义pre
 # AI回复
 api_router.include_router(ai.router, prefix="/ai-reply-settings", tags=["AI回复"])
 api_router.include_router(ai.test_router, tags=["AI回复测试"])  # ai.py已定义prefix="/ai-reply-test"
+api_router.include_router(billing.router)
 api_router.include_router(ai_usage.router)
 
 # 消息和回复
