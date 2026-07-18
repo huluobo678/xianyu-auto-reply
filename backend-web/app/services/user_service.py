@@ -1,4 +1,4 @@
-﻿"""
+"""
 
 用户服务
 
@@ -34,8 +34,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import security
 
+from common.models.ai_usage import AIQuotaConfig
+from common.models.billing import (
+    AIQuotaGrant,
+    BillingPlan,
+    EntitlementLedger,
+    UserSubscription,
+)
 from common.models.system_setting import SystemSetting
-
 from common.models.user import User, UserRole, UserStatus
 
 from common.models.xy_account import XYAccount
@@ -44,6 +50,7 @@ from common.schemas.user import AdminUserCreate, AdminUserUpdate, UserCreate, Us
 
 from common.utils.time_utils import get_beijing_now_naive
 
+SIGNUP_AI_QUOTA = 100
 
 
 
@@ -196,6 +203,66 @@ class UserService:
 
 
 
+    async def _grant_free_signup_entitlements(self, user: User) -> None:
+        free_plan = await self.session.scalar(
+            select(BillingPlan).where(
+                BillingPlan.code == "free",
+                BillingPlan.enabled.is_(True),
+            )
+        )
+        if not free_plan:
+            raise RuntimeError("Free billing plan is not initialized")
+
+        now = get_beijing_now_naive()
+        period_start = now.date().replace(day=1)
+        next_month = (period_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        period_end = next_month - timedelta(days=1)
+        user.account_limit = int(free_plan.account_limit)
+
+        self.session.add(UserSubscription(
+            user_id=user.id,
+            plan_id=free_plan.id,
+            plan_code=free_plan.code,
+            billing_cycle=None,
+            status="active",
+            account_limit=int(free_plan.account_limit),
+            monthly_ai_quota=int(free_plan.monthly_ai_quota),
+            feature_snapshot=free_plan.feature_flags,
+            current_period_start=period_start,
+            current_period_end=period_end,
+            starts_at=now,
+            expires_at=None,
+            source_order_id=None,
+        ))
+        self.session.add(AIQuotaConfig(
+            user_id=user.id,
+            package_quota=int(free_plan.monthly_ai_quota),
+            independent_quota=0,
+        ))
+        grant = AIQuotaGrant(
+            user_id=user.id,
+            grant_type="signup_bonus",
+            source_id=None,
+            idempotency_key=f"signup:user:{user.id}:ai100",
+            total_quota=SIGNUP_AI_QUOTA,
+            remaining_quota=SIGNUP_AI_QUOTA,
+            starts_at=now,
+            expires_at=None,
+            status="active",
+        )
+        self.session.add(grant)
+        await self.session.flush()
+        self.session.add(EntitlementLedger(
+            user_id=user.id,
+            event_type="signup_grant",
+            entitlement_type="signup_ai_quota",
+            quantity=SIGNUP_AI_QUOTA,
+            order_id=None,
+            grant_id=grant.id,
+            idempotency_key=f"signup:user:{user.id}:ledger",
+            details={"plan_code": free_plan.code, "account_limit": int(free_plan.account_limit)},
+        ))
+
     async def create(self, payload: UserCreate, *, role: UserRole | None = None) -> User:
 
         # 注册时按系统设置的默认天数计算到期日（未配置则为 None，表示永不过期）
@@ -223,7 +290,7 @@ class UserService:
         self.session.add(user)
 
         await self.session.flush()
-
+        await self._grant_free_signup_entitlements(user)
         await self.session.commit()
 
         return user

@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -323,13 +323,14 @@ class AIUsageService:
             select(AIQuotaGrant)
             .where(
                 AIQuotaGrant.user_id == user_id,
-                AIQuotaGrant.grant_type == "quota_package",
+                AIQuotaGrant.grant_type.in_(("signup_bonus", "quota_package")),
                 AIQuotaGrant.status == "active",
                 AIQuotaGrant.starts_at <= now,
                 or_(AIQuotaGrant.expires_at.is_(None), AIQuotaGrant.expires_at > now),
                 AIQuotaGrant.remaining_quota > 0,
             )
             .order_by(
+                case((AIQuotaGrant.grant_type == "signup_bonus", 0), else_=1),
                 AIQuotaGrant.expires_at.is_(None),
                 AIQuotaGrant.expires_at,
                 AIQuotaGrant.id,

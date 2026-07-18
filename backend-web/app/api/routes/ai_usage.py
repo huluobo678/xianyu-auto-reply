@@ -48,7 +48,7 @@ async def get_my_ai_usage(
     now = get_beijing_now_naive()
     active_grants = (
         AIQuotaGrant.user_id == current_user.id,
-        AIQuotaGrant.grant_type == "quota_package",
+        AIQuotaGrant.grant_type.in_(("signup_bonus", "quota_package")),
         AIQuotaGrant.status == "active",
         AIQuotaGrant.starts_at <= now,
         or_(AIQuotaGrant.expires_at.is_(None), AIQuotaGrant.expires_at > now),
