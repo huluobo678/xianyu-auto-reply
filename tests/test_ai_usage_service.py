@@ -160,6 +160,14 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(released, 2)
         self.assertEqual(grant.remaining_quota, 1300)
         self.assertEqual((user_usage.reserved_replies, account_usage.reserved_replies), (0, 0))
+    def test_quota_grant_index_migration_is_registered(self):
+        import inspect
+
+        from common.db.init_database import DatabaseInitializer
+
+        source = inspect.getsource(DatabaseInitializer.migrate_indexes)
+        self.assertIn("idx_ai_usage_grant", source)
+        self.assertIn("ADD INDEX idx_ai_usage_grant (quota_grant_id)", source)
     def test_rpm_query_counts_released_attempts(self):
         from sqlalchemy.dialects import mysql
 

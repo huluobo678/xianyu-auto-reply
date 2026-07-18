@@ -2197,6 +2197,21 @@ class DatabaseInitializer:
                 logger.warning(f'billing order index migration failed: {exc}')
 
             try:
+                result = await conn.execute(text("""
+                    SELECT COUNT(*) FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'xy_ai_usage_requests'
+                    AND INDEX_NAME = 'idx_ai_usage_grant'
+                """))
+                if result.scalar() == 0:
+                    await conn.execute(text("""
+                        ALTER TABLE xy_ai_usage_requests
+                        ADD INDEX idx_ai_usage_grant (quota_grant_id)
+                    """))
+            except Exception as exc:
+                logger.warning(f'AI usage grant index migration failed: {exc}')
+
+            try:
                 # xy_card_item_relations: 将旧的 uk_card_item(card_id, item_id) 替换为 uk_card_item_dock(card_id, item_id, dock_record_id)
                 # 检查旧索引是否存在
                 check_old = text("""
