@@ -1,4 +1,4 @@
-﻿"""
+"""
 系统设置服务
 
 功能：
@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.models.system_setting import SystemSetting
 from common.utils.text_utils import escape_xss
 
-SENSITIVE_KEYS = {"admin_password_hash", "ai_proxy.api_key"}
+SENSITIVE_KEYS = {
+    "admin_password_hash",
+    "ai_proxy.api_key",
+    "alipay.private_key",
+    "alipay.alipay_public_key",
+}
 
 DEFAULT_DISCLAIMER_CONTENT = (
     "数据存储说明\n"
@@ -70,6 +75,14 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
     "ai_proxy.base_url": ("", "中转站 API 地址（全局默认，账号未单独配置 AI 时使用）"),
     "ai_proxy.api_key": ("", "中转站 API Key（全局默认，账号未单独配置 AI 时使用）"),
     "ai_proxy.model_name": ("gpt-3.5-turbo", "中转站默认模型名称"),
+    # 支付宝套餐支付配置；密钥通过敏感设置写入，列表接口不回显
+    "alipay.app_id": ("", "支付宝开放平台应用 APP_ID"),
+    "alipay.private_key": ("", "支付宝应用私钥"),
+    "alipay.alipay_public_key": ("", "支付宝公钥"),
+    "alipay.gateway_url": ("https://openapi.alipay.com/gateway.do", "支付宝网关地址"),
+    "alipay.notify_url": ("", "余额充值支付宝异步通知地址"),
+    "alipay.billing_notify_url": ("", "套餐支付支付宝异步通知地址"),
+    "alipay.seller_id": ("", "支付宝收款商户 seller_id"),
 }
 
 # 不需要XSS转义的键（布尔值、数字等）

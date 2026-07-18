@@ -4,16 +4,18 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from common.models.ai_usage import AIAccountMonthlyUsage, AIAccountQuotaConfig
 from common.models.ai_usage import AIQuotaConfig, AIUsageRequest, AIUserMonthlyUsage
+from common.models.billing import AIQuotaGrant
 from common.models.user import User
 from common.models.xy_account import XYAccount
 from common.schemas.common import ApiResponse
 from common.services.ai_usage_service import current_period_start
+from common.utils.time_utils import get_beijing_now_naive
 
 router = APIRouter(tags=["AI usage"])
 admin_router = APIRouter(tags=["AI usage admin"])
@@ -43,8 +45,27 @@ async def get_my_ai_usage(
     config = await session.scalar(select(AIQuotaConfig).where(AIQuotaConfig.user_id == current_user.id))
     used = int(usage.effective_replies if usage else 0)
     quota = None if config is None else int(config.package_quota) + int(config.independent_quota)
-    remaining = None if quota is None else max(0, quota - used)
-    warning = 100 if quota and used >= quota else 80 if quota and used * 100 >= quota * 80 else None
+    now = get_beijing_now_naive()
+    active_grants = (
+        AIQuotaGrant.user_id == current_user.id,
+        AIQuotaGrant.grant_type == "quota_package",
+        AIQuotaGrant.status == "active",
+        AIQuotaGrant.starts_at <= now,
+        or_(AIQuotaGrant.expires_at.is_(None), AIQuotaGrant.expires_at > now),
+    )
+    addon_remaining = int(await session.scalar(
+        select(func.coalesce(func.sum(AIQuotaGrant.remaining_quota), 0)).where(*active_grants)
+    ) or 0)
+    addon_total = int(await session.scalar(
+        select(func.coalesce(func.sum(AIQuotaGrant.total_quota), 0)).where(*active_grants)
+    ) or 0)
+    remaining = None if quota is None else max(0, quota - used) + addon_remaining
+    warning_quota = None if quota is None else quota + addon_total
+    warning = (
+        100 if warning_quota and used >= warning_quota
+        else 80 if warning_quota and used * 100 >= warning_quota * 80
+        else None
+    )
     message = "AI quota reached 100%" if warning == 100 else "AI quota reached 80%" if warning == 80 else "ok"
     return ApiResponse(
         success=True,

@@ -1708,6 +1708,7 @@ class DatabaseInitializer:
                 chat_id VARCHAR(128) NOT NULL,
                 status VARCHAR(20) NOT NULL DEFAULT 'reserved',
                 release_reason VARCHAR(64) DEFAULT NULL,
+                quota_grant_id BIGINT DEFAULT NULL,
                 model_name VARCHAR(120) DEFAULT NULL,
                 provider_name VARCHAR(80) DEFAULT NULL,
                 requested_at DATETIME DEFAULT NULL,
@@ -1725,15 +1726,24 @@ class DatabaseInitializer:
                 INDEX idx_ai_usage_user_period (user_id, period_start),
                 INDEX idx_ai_usage_account_period (account_pk, period_start),
                 INDEX idx_ai_usage_status_created (status, created_at),
-                INDEX idx_ai_usage_log (auto_reply_log_id)
+                INDEX idx_ai_usage_log (auto_reply_log_id),
+                INDEX idx_ai_usage_grant (quota_grant_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         """,
     }
     
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
     COLUMN_MIGRATIONS = {
+        "xy_ai_usage_requests": [
+            ("quota_grant_id", "BIGINT DEFAULT NULL", "release_reason"),
+        ],
         "xy_billing_orders": [
             ("request_key", "VARCHAR(64) DEFAULT NULL", "user_id"),
+            ("payment_qr_code", "VARCHAR(1024) DEFAULT NULL", "payment_channel"),
+            ("payment_expires_at", "DATETIME DEFAULT NULL", "payment_qr_code"),
+            ("entitlement_attempts", "INT NOT NULL DEFAULT 0", "entitlement_status"),
+            ("entitlement_error", "VARCHAR(500) DEFAULT NULL", "entitlement_attempts"),
+            ("notify_received_at", "DATETIME DEFAULT NULL", "entitlement_error"),
         ],
         "xy_listing_monitor_tasks": [
             ("monitor_type", "VARCHAR(20) NOT NULL DEFAULT 'listing' COMMENT '监控类型：listing-上新监控，price_drop-降价监控'", "owner_id"),

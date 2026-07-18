@@ -81,6 +81,7 @@ class AIUsageRequest(Base):
     chat_id: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="reserved", server_default="reserved")
     release_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    quota_grant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     provider_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

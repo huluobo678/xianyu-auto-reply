@@ -51,7 +51,8 @@ class AlipayService:
         keys = [
             'alipay.app_id', 'alipay.private_key',
             'alipay.alipay_public_key', 'alipay.gateway_url',
-            'alipay.notify_url',
+            'alipay.notify_url', 'alipay.billing_notify_url',
+            'alipay.seller_id',
         ]
         stmt = select(SystemSetting).where(SystemSetting.key.in_(keys))
         result = await session.execute(stmt)
@@ -63,6 +64,8 @@ class AlipayService:
             'gateway_url': settings.get('alipay.gateway_url',
                                         'https://openapi.alipay.com/gateway.do'),
             'notify_url': settings.get('alipay.notify_url', ''),
+            'billing_notify_url': settings.get('alipay.billing_notify_url', ''),
+            'seller_id': settings.get('alipay.seller_id', ''),
         }
 
     def create_f2f_pay(self, order_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -118,7 +121,7 @@ class AlipayService:
         """解析当面付API响应"""
         match = re.search(r'"alipay_trade_precreate_response":\s*(\{[^}]+\})', text)
         if not match:
-            logger.error(f"无法解析支付宝API响应: {text}")
+            logger.error("无法解析支付宝API响应: order=%s", order_no)
             return None
 
         data = json.loads(match.group(1))
@@ -130,7 +133,10 @@ class AlipayService:
             }
 
         sub_msg = data.get('sub_msg', data.get('msg', '未知错误'))
-        logger.error(f"支付宝当面付失败: {data}")
+        logger.error(
+            "支付宝当面付失败: order=%s code=%s sub_code=%s message=%s",
+            order_no, data.get('code'), data.get('sub_code'), sub_msg,
+        )
         return {'success': False, 'error': sub_msg}
 
     def verify_notify(self, notify_data: Dict[str, Any]) -> bool:

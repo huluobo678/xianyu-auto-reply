@@ -6,12 +6,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from common.models.ai_usage import AIAccountMonthlyUsage, AIAccountQuotaConfig
 from common.models.ai_usage import AIQuotaConfig, AIUsageRequest, AIUserMonthlyUsage
+from common.models.billing import AIQuotaGrant
 from common.models.xy_account import XYAccount
 from common.utils.time_utils import get_beijing_now_naive
 
@@ -105,7 +106,9 @@ class AIUsageService:
         await AIUsageService._release_stale_reservations_locked(
             session, account, user_usage, account_usage, stale_ids, now
         )
-        AIUsageService._check_quota(user_usage, AIUsageService._get_user_quota(user_config), "user")
+        quota_grant_id = await AIUsageService._reserve_user_quota(
+            session, account.owner_id, user_usage, user_config, now
+        )
         AIUsageService._check_quota(account_usage, account_config.monthly_quota if account_config else None, "account")
         concurrency = account_config.max_concurrency if account_config else DEFAULT_ACCOUNT_CONCURRENCY
         if account_usage.reserved_replies >= max(1, concurrency):
@@ -128,6 +131,7 @@ class AIUsageService:
             source_message_id=source_id,
             chat_id=chat_id,
             status="reserved",
+            quota_grant_id=quota_grant_id,
             requested_at=now,
         )
         session.add(request)
@@ -171,6 +175,7 @@ class AIUsageService:
             return 0
 
         stale_count = len(stale_ids)
+        await AIUsageService._restore_quota_grants(session, stale_ids)
         await session.execute(
             update(AIUsageRequest)
             .where(
@@ -277,6 +282,7 @@ class AIUsageService:
             )
             user_usage.reserved_replies = max(0, user_usage.reserved_replies - 1)
             account_usage.reserved_replies = max(0, account_usage.reserved_replies - 1)
+            await AIUsageService._restore_quota_grant(session, getattr(request, "quota_grant_id", None))
             request.status = "released"
             request.release_reason = reason[:64]
             request.released_at = get_beijing_now_naive()
@@ -298,6 +304,75 @@ class AIUsageService:
                 ON DUPLICATE KEY UPDATE updated_at = updated_at"""),
             {"account_pk": account.id, "user_id": account.owner_id, "period_start": period},
         )
+
+    @staticmethod
+    async def _reserve_user_quota(
+        session: AsyncSession,
+        user_id: int,
+        usage: AIUserMonthlyUsage,
+        config: AIQuotaConfig | None,
+        now: datetime,
+    ) -> int | None:
+        base_quota = AIUsageService._get_user_quota(config)
+        if base_quota is None:
+            return None
+        if usage.effective_replies + usage.reserved_replies < base_quota:
+            return None
+
+        grant = await session.scalar(
+            select(AIQuotaGrant)
+            .where(
+                AIQuotaGrant.user_id == user_id,
+                AIQuotaGrant.grant_type == "quota_package",
+                AIQuotaGrant.status == "active",
+                AIQuotaGrant.starts_at <= now,
+                or_(AIQuotaGrant.expires_at.is_(None), AIQuotaGrant.expires_at > now),
+                AIQuotaGrant.remaining_quota > 0,
+            )
+            .order_by(
+                AIQuotaGrant.expires_at.is_(None),
+                AIQuotaGrant.expires_at,
+                AIQuotaGrant.id,
+            )
+            .with_for_update()
+        )
+        if not grant:
+            raise AIQuotaExceededError("AI user quota exhausted")
+        grant.remaining_quota -= 1
+        return grant.id
+
+    @staticmethod
+    async def _restore_quota_grants(
+        session: AsyncSession,
+        request_ids: list[int],
+    ) -> None:
+        grant_ids = list(await session.scalars(
+            select(AIUsageRequest.quota_grant_id).where(
+                AIUsageRequest.id.in_(request_ids),
+                AIUsageRequest.status == "reserved",
+                AIUsageRequest.quota_grant_id.is_not(None),
+            )
+        ))
+        for grant_id in grant_ids:
+            await AIUsageService._restore_quota_grant(session, grant_id)
+
+    @staticmethod
+    async def _restore_quota_grant(
+        session: AsyncSession,
+        grant_id: int | None,
+    ) -> None:
+        if grant_id is None:
+            return
+        grant = await session.scalar(
+            select(AIQuotaGrant)
+            .where(AIQuotaGrant.id == grant_id)
+            .with_for_update()
+        )
+        if grant:
+            grant.remaining_quota = min(
+                int(grant.total_quota),
+                int(grant.remaining_quota) + 1,
+            )
 
     @staticmethod
     def _check_quota(usage: Any, quota: int | None, scope: str) -> None:

@@ -89,7 +89,7 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         account = SimpleNamespace(id=8)
         user_usage = usage(reserved=2)
         account_usage = usage(reserved=2)
-        session = FakeSession([])
+        session = FakeSession([[]])
         released = await AIUsageService._release_stale_reservations_locked(
             session,
             account,
@@ -103,6 +103,63 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(account_usage.reserved_replies, 0)
         self.assertEqual(len(session.executed), 1)
 
+    async def test_quota_package_is_reserved_after_monthly_quota_exhausted(self):
+        monthly_usage = usage(effective=1000)
+        config = SimpleNamespace(package_quota=1000, independent_quota=0)
+        grant = SimpleNamespace(id=91, total_quota=1300, remaining_quota=1300)
+        session = FakeSession([grant])
+
+        grant_id = await AIUsageService._reserve_user_quota(
+            session,
+            7,
+            monthly_usage,
+            config,
+            datetime(2026, 7, 18, 12, 0),
+        )
+
+        self.assertEqual(grant_id, 91)
+        self.assertEqual(grant.remaining_quota, 1299)
+
+    async def test_release_restores_reserved_quota_package(self):
+        request = SimpleNamespace(
+            status="reserved",
+            user_id=7,
+            account_pk=8,
+            period_start=date(2026, 7, 1),
+            quota_grant_id=91,
+            release_reason=None,
+            released_at=None,
+        )
+        user_usage = usage(reserved=1)
+        account_usage = usage(reserved=1)
+        grant = SimpleNamespace(id=91, total_quota=1300, remaining_quota=1299)
+        session = FakeSession([request, user_usage, account_usage, grant])
+
+        released = await AIUsageService.release(session, 1, "send_failed")
+
+        self.assertTrue(released)
+        self.assertEqual(grant.remaining_quota, 1300)
+        self.assertEqual(request.status, "released")
+
+    async def test_stale_reservations_restore_quota_packages(self):
+        account = SimpleNamespace(id=8)
+        user_usage = usage(reserved=2)
+        account_usage = usage(reserved=2)
+        grant = SimpleNamespace(id=91, total_quota=1300, remaining_quota=1298)
+        session = FakeSession([[91, 91], grant, grant])
+
+        released = await AIUsageService._release_stale_reservations_locked(
+            session,
+            account,
+            user_usage,
+            account_usage,
+            [101, 102],
+            datetime(2026, 7, 18, 12, 0),
+        )
+
+        self.assertEqual(released, 2)
+        self.assertEqual(grant.remaining_quota, 1300)
+        self.assertEqual((user_usage.reserved_replies, account_usage.reserved_replies), (0, 0))
     def test_rpm_query_counts_released_attempts(self):
         from sqlalchemy.dialects import mysql
 
