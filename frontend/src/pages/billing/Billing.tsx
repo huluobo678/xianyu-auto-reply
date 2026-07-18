@@ -9,12 +9,14 @@ import {
   getBillingOrder,
   getBillingPaymentReadiness,
   getMyAIUsage,
+  getMyEntitlements,
   type AIQuotaPackage,
   type AIUsageSummary,
   type BillingCatalog,
   type BillingCycle,
   type BillingOrder,
   type BillingPlan,
+  type UserEntitlements,
 } from '@/api/billing'
 import { useUIStore } from '@/store/uiStore'
 import { getApiErrorMessage } from '@/utils/request'
@@ -44,6 +46,7 @@ const planStyles: Record<string, { border: string; badge: string; button: string
   enterprise: { border: 'border-amber-300 dark:border-amber-700', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300', button: 'bg-amber-500 text-white hover:bg-amber-600' },
 }
 
+const planNames: Record<string, string> = { free: '免费版', standard: '标准版', merchant: '商家版', enterprise: '企业版' }
 const formatQuota = (value: number | null) => value === null ? '不限' : value.toLocaleString('zh-CN')
 const makeRequestKey = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
   ? crypto.randomUUID()
@@ -53,6 +56,7 @@ export function Billing() {
   const addToast = useUIStore((state) => state.addToast)
   const [catalog, setCatalog] = useState<BillingCatalog | null>(null)
   const [usage, setUsage] = useState<AIUsageSummary | null>(null)
+  const [entitlements, setEntitlements] = useState<UserEntitlements | null>(null)
   const [paymentReady, setPaymentReady] = useState(false)
   const [cycle, setCycle] = useState<BillingCycle>('monthly')
   const [loading, setLoading] = useState(true)
@@ -62,8 +66,8 @@ export function Billing() {
   const loadPage = useCallback(async () => {
     setLoading(true)
     try {
-      const [catalogResponse, readinessResponse, usageResponse] = await Promise.all([
-        getBillingCatalog(), getBillingPaymentReadiness(), getMyAIUsage(),
+      const [catalogResponse, readinessResponse, usageResponse, entitlementResponse] = await Promise.all([
+        getBillingCatalog(), getBillingPaymentReadiness(), getMyAIUsage(), getMyEntitlements(),
       ])
       if (!catalogResponse.success || !catalogResponse.data) {
         throw new Error(catalogResponse.message || '套餐目录加载失败')
@@ -71,6 +75,7 @@ export function Billing() {
       setCatalog(catalogResponse.data)
       setPaymentReady(Boolean(readinessResponse.data?.payment_ready))
       setUsage(usageResponse.data || null)
+      setEntitlements(entitlementResponse.data || null)
     } catch (error) {
       addToast({ type: 'error', message: getApiErrorMessage(error, '套餐与额度加载失败') })
     } finally {
@@ -138,7 +143,8 @@ export function Billing() {
             <h1 className="text-3xl font-bold tracking-tight md:text-4xl">套餐与 AI 额度</h1>
             <p className="mt-3 leading-7 text-slate-300">失败、过滤、重复消息、人工接管和发送失败均不扣额度。免费基础功能长期可用，新用户赠送100次 AI 有效回复。</p>
           </div>
-          <div className="grid min-w-[280px] grid-cols-2 gap-3">
+          <div className="grid min-w-[280px] grid-cols-2 gap-3 lg:min-w-[440px] lg:grid-cols-3">
+<UsageCard label="当前套餐" value={planNames[entitlements?.plan_code || ''] || entitlements?.plan_code || '免费版'} />
             <UsageCard label="本月有效回复" value={formatQuota(usage?.effective_replies ?? 0)} />
             <UsageCard label="剩余可用额度" value={formatQuota(usage ? usage.remaining_quota : 0)} />
           </div>

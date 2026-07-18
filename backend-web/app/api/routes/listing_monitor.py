@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_db_session
+from app.api.deps import get_current_active_user, get_db_session, require_billing_features
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.services.listing_monitor_service import ListingMonitorService, _task_to_dict
@@ -22,7 +22,12 @@ from common.models.user import User
 from common.schemas.common import ApiResponse
 from common.utils.auth_scope import resolve_owner_scope
 
-router = APIRouter(prefix="/product-monitor/listing-tasks", tags=["商品上新监控"])
+listing_monitor_access = require_billing_features("listing_monitor")
+router = APIRouter(
+    prefix="/product-monitor/listing-tasks",
+    tags=["商品上新监控"],
+    dependencies=[Depends(listing_monitor_access)],
+)
 
 
 class ListingMonitorCreateRequest(BaseModel):

@@ -68,6 +68,15 @@ export interface AIUsageSummary {
   remaining_quota: number | null
 }
 
+export interface UserEntitlements {
+  plan_code: string
+  account_limit: number
+  monthly_ai_quota: number
+  features: string[]
+  expires_at: string | null
+  source: 'subscription' | 'free_fallback'
+}
+
 export const getBillingCatalog = () =>
   get<ApiResponse<BillingCatalog>>(`${BILLING_PREFIX}/catalog`)
 
@@ -92,3 +101,6 @@ export const getBillingOrder = (orderNo: string) =>
 
 export const getMyAIUsage = () =>
   get<ApiResponse<AIUsageSummary>>('/api/v1/ai-usage')
+
+export const getMyEntitlements = () =>
+  get<ApiResponse<UserEntitlements>>(`${BILLING_PREFIX}/entitlements`)

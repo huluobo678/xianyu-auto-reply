@@ -23,6 +23,8 @@ from common.db.session import async_session_maker
 from common.models.listing_monitor_item import ListingMonitorItem
 from common.models.listing_monitor_log import ListingMonitorLog
 from common.models.listing_monitor_task import ListingMonitorTask
+from common.models.user import User, UserRole
+from common.services.subscription_feature_service import SubscriptionFeatureService
 from common.models.xy_account import XYAccount
 from common.services.account_cooldown import DEFAULT_COOLDOWN_SECONDS, account_cooldown_manager
 from common.services.listing_monitor_dedup import has_owner_ordered_item
@@ -133,6 +135,9 @@ class ListingMonitorTaskService:
 
             logger.info(f"【{self.task_name}】启用任务 {len(tasks)} 个，本次执行 {len(due_tasks)} 个")
             for index, task in enumerate(due_tasks):
+                if not await self._owner_can_run_listing_monitor(task.owner_id):
+                    logger.info(f"【{self.task_name}】跳过无商品监控权益的任务 {task.id}")
+                    continue
                 try:
                     await self._process_task(task, trigger_type=trigger_type)
                 except Exception as exc:  # noqa: BLE001
@@ -167,6 +172,8 @@ class ListingMonitorTaskService:
                 ).scalar_one_or_none()
             if not task:
                 return {"success": False, "message": "监控任务不存在、已删除或未启用"}
+            if not await self._owner_can_run_listing_monitor(task.owner_id):
+                return {"success": False, "message": "当前套餐不支持商品监控"}
             try:
                 await self._process_task(task, trigger_type=trigger_type)
                 return {"success": True, "message": "采集已执行"}
@@ -174,6 +181,17 @@ class ListingMonitorTaskService:
                 logger.error(f"【{self.task_name}】手动执行任务 {task_id} 异常: {exc}")
                 return {"success": False, "message": f"采集执行失败: {exc}"}
 
+    async def _owner_can_run_listing_monitor(self, owner_id: Optional[int]) -> bool:
+        if owner_id is None:
+            return False
+        async with async_session_maker() as session:
+            user = await session.get(User, owner_id)
+            if user and user.role == UserRole.ADMIN:
+                return True
+            return await SubscriptionFeatureService(session).has_any_feature(
+                owner_id,
+                ('listing_monitor',),
+            )
     @staticmethod
     def _is_due(task: ListingMonitorTask, now_naive: datetime) -> bool:
         """根据任务自身的 interval_minutes 判断是否到期需要执行。"""

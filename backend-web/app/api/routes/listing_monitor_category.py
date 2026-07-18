@@ -8,19 +8,22 @@
 4. 修改分类名称
 5. 删除分类（软删除，需检查关联数据）
 """
-from typing import Optional
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_db_session
+from app.api.deps import get_current_active_user, get_db_session, require_billing_features
 from common.models.user import User
 from common.schemas.common import ApiResponse
 from common.services.listing_monitor_category_service import ListingMonitorCategoryService
 from common.utils.auth_scope import resolve_owner_scope
 
-router = APIRouter(prefix="/product-monitor/categories", tags=["商品监控分类"])
+listing_monitor_access = require_billing_features("listing_monitor")
+router = APIRouter(
+    prefix="/product-monitor/categories",
+    tags=["商品监控分类"],
+    dependencies=[Depends(listing_monitor_access)],
+)
 
 
 class CategoryCreateRequest(BaseModel):

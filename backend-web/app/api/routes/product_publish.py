@@ -17,7 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_db_session
+from app.api.deps import get_current_active_user, get_db_session, require_billing_features
 from app.services.product_publish_service import ProductMaterialService
 from app.services.publish_batch_status_service import PublishBatchStatusService
 from app.services.publish_execution_service import PublishExecutorService, PublishLogService
@@ -30,7 +30,13 @@ def _is_admin(user: User) -> bool:
     """判断用户是否为管理员"""
     return user.role == UserRole.ADMIN
 
-router = APIRouter(prefix="/product-publish", tags=["商品发布"])
+product_publish_access = require_billing_features("single_publish", "batch_publish")
+batch_publish_access = require_billing_features("batch_publish")
+router = APIRouter(
+    prefix="/product-publish",
+    tags=["商品发布"],
+    dependencies=[Depends(product_publish_access)],
+)
 
 
 # ==================== Pydantic 请求 / 响应模型 ====================
@@ -235,7 +241,11 @@ async def publish_single(
     )
 
 
-@router.post("/publish/batch", response_model=ApiResponse)
+@router.post(
+    "/publish/batch",
+    response_model=ApiResponse,
+    dependencies=[Depends(batch_publish_access)],
+)
 async def publish_batch(
     req: BatchPublishRequest,
     background_tasks: BackgroundTasks,

@@ -21,10 +21,11 @@ from app.core.security import decode_token
 from common.db.session import async_session_maker
 from common.models import User, UserRole, UserStatus
 from common.schemas.auth import TokenPayload
+from common.services.subscription_feature_service import SubscriptionFeatureService
 
 settings = get_settings()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"/api/v1/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -72,6 +73,26 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
     return current_user
+
+def require_billing_features(*feature_codes: str):
+    if not feature_codes:
+        raise ValueError("At least one billing feature is required")
+
+    async def dependency(
+        current_user: User = Depends(get_current_active_user),
+        session: AsyncSession = Depends(get_db_session),
+    ) -> User:
+        if current_user.role == UserRole.ADMIN:
+            return current_user
+        service = SubscriptionFeatureService(session)
+        if not await service.has_any_feature(current_user.id, tuple(feature_codes)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="当前套餐不支持此功能，请前往套餐与额度页面升级",
+            )
+        return current_user
+
+    return dependency
 
 
 # ==================== Service 依赖注入 ====================

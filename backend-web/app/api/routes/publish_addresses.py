@@ -14,13 +14,23 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_current_admin_user, get_db_session
+from app.api.deps import (
+    get_current_active_user,
+    get_current_admin_user,
+    get_db_session,
+    require_billing_features,
+)
 from common.models.user import User
 from common.schemas.common import ApiResponse
 from common.utils.auth_scope import resolve_owner_scope
 from app.services.publish_address_service import PublishAddressService, _address_to_dict
 
-router = APIRouter(prefix="/product-publish/addresses", tags=["商品发布随机地址池"])
+product_publish_access = require_billing_features("single_publish", "batch_publish")
+router = APIRouter(
+    prefix="/product-publish/addresses",
+    tags=["商品发布随机地址池"],
+    dependencies=[Depends(product_publish_access)],
+)
 
 
 class PublishAddressCreateRequest(BaseModel):

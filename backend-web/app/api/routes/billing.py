@@ -12,6 +12,8 @@ from app.services.billing_payment_service import (
 from common.models.user import User
 from common.schemas.common import ApiResponse
 from common.services.billing_service import BillingCatalogError, BillingService
+from common.services.subscription_feature_service import SubscriptionFeatureService
+from common.utils.time_utils import safe_isoformat
 
 router = APIRouter(prefix='/billing', tags=['billing'])
 
@@ -38,6 +40,15 @@ async def get_payment_readiness(
 ) -> ApiResponse:
     ready = await BillingPaymentService(session).payment_ready()
     return ApiResponse(success=True, data={'payment_ready': ready})
+
+@router.get('/entitlements', response_model=ApiResponse)
+async def get_my_entitlements(
+    current_user: User = Depends(deps.get_current_active_user),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    data = await SubscriptionFeatureService(session).get_entitlements(current_user.id)
+    data['expires_at'] = safe_isoformat(data['expires_at'])
+    return ApiResponse(success=True, data=data)
 
 
 @router.post('/orders', response_model=ApiResponse)
