@@ -409,6 +409,7 @@ npm run dev
 4. 为外网入口配置 HTTPS
 5. 定期备份 MySQL 与静态资源目录
 6. 确保 Playwright 浏览器已正确安装
+7. 域名、自动 HTTPS 和支付宝套餐支付上线参见 [docs/PRODUCTION_HTTPS_PAYMENT_DEPLOYMENT.md](docs/PRODUCTION_HTTPS_PAYMENT_DEPLOYMENT.md)
 
 ## 常见问题
 
