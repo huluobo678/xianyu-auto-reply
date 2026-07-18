@@ -61,7 +61,7 @@ class BillingEntitlementServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_plan_payment_atomically_grants_subscription_and_limits(self):
         user = SimpleNamespace(id=7, account_limit=1)
-        session = FakeSession([user, None, None, None, None])
+        session = FakeSession([None, user, None, None, None])
         order = self._plan_order()
         now = datetime(2026, 7, 18, 12, 0, 0)
 

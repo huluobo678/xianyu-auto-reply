@@ -14,6 +14,7 @@ from common.models.ai_usage import AIAccountMonthlyUsage, AIAccountQuotaConfig
 from common.models.ai_usage import AIQuotaConfig, AIUsageRequest, AIUserMonthlyUsage
 from common.models.billing import AIQuotaGrant
 from common.models.xy_account import XYAccount
+from common.services.subscription_lifecycle_service import SubscriptionLifecycleService
 from common.utils.time_utils import get_beijing_now_naive
 
 DEFAULT_ACCOUNT_RPM = 60
@@ -86,6 +87,7 @@ class AIUsageService:
 
     @staticmethod
     async def _reserve_locked(session, account, period, key, source_id, chat_id, now):
+        await SubscriptionLifecycleService(session).expire_user_if_due(account.owner_id, now)
         stale_ids = await AIUsageService._lock_stale_reservation_ids(
             session, account.id, account.owner_id, period, now
         )

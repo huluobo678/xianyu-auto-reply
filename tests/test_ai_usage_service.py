@@ -80,10 +80,16 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         account = SimpleNamespace(id=8, owner_id=7, account_id="acct")
         account_config = SimpleNamespace(monthly_quota=None, max_concurrency=1, requests_per_minute=60)
         session = FakeSession([[], usage(), usage(reserved=1), None, account_config])
-        with self.assertRaises(AIAccountConcurrencyError):
-            await AIUsageService._reserve_locked(
-                session, account, date(2026, 7, 1), "key", "msg", "chat", datetime(2026, 7, 16)
-            )
+        with patch(
+            "common.services.ai_usage_service.SubscriptionLifecycleService.expire_user_if_due",
+            new=AsyncMock(return_value=False),
+        ) as expire_user:
+            with self.assertRaises(AIAccountConcurrencyError):
+                await AIUsageService._reserve_locked(
+                    session, account, date(2026, 7, 1), "key", "msg", "chat", datetime(2026, 7, 16)
+                )
+
+        expire_user.assert_awaited_once_with(7, datetime(2026, 7, 16))
 
     async def test_stale_reservations_are_atomically_released(self):
         account = SimpleNamespace(id=8)

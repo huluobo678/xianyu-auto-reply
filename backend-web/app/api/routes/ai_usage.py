@@ -15,6 +15,7 @@ from common.models.user import User
 from common.models.xy_account import XYAccount
 from common.schemas.common import ApiResponse
 from common.services.ai_usage_service import current_period_start
+from common.services.subscription_feature_service import SubscriptionFeatureService
 from common.utils.time_utils import get_beijing_now_naive
 
 router = APIRouter(tags=["AI usage"])
@@ -44,7 +45,8 @@ async def get_my_ai_usage(
     ))
     config = await session.scalar(select(AIQuotaConfig).where(AIQuotaConfig.user_id == current_user.id))
     used = int(usage.effective_replies if usage else 0)
-    quota = None if config is None else int(config.package_quota) + int(config.independent_quota)
+    entitlements = await SubscriptionFeatureService(session).get_entitlements(current_user.id)
+    quota = int(entitlements["monthly_ai_quota"]) + int(config.independent_quota if config else 0)
     now = get_beijing_now_naive()
     active_grants = (
         AIQuotaGrant.user_id == current_user.id,
@@ -59,10 +61,10 @@ async def get_my_ai_usage(
     addon_total = int(await session.scalar(
         select(func.coalesce(func.sum(AIQuotaGrant.total_quota), 0)).where(*active_grants)
     ) or 0)
-    remaining = None if quota is None else max(0, quota - used) + addon_remaining
-    warning_quota = None if quota is None else quota + addon_total
+    remaining = max(0, quota - used) + addon_remaining
+    warning_quota = quota + addon_total
     warning = (
-        100 if warning_quota and used >= warning_quota
+        100 if warning_quota > 0 and used >= warning_quota
         else 80 if warning_quota and used * 100 >= warning_quota * 80
         else None
     )

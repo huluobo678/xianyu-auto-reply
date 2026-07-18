@@ -61,6 +61,7 @@ from app.services.scheduled_task_service import (
     TASK_CODE_AUTO_ORDER,
 )
 from common.db.session import async_session_maker
+from common.services.subscription_lifecycle_service import SubscriptionLifecycleService
 
 
 class SchedulerService:
@@ -90,6 +91,7 @@ class SchedulerService:
         self._seller_fill_task_handle: Optional[asyncio.Task] = None
         self._dm_send_task_handle: Optional[asyncio.Task] = None
         self._auto_order_task_handle: Optional[asyncio.Task] = None
+        self._subscription_expiry_task_handle: Optional[asyncio.Task] = None
         self._redelivery_task = RedeliveryTask()
         self._rate_task = RateTask()
         self._polish_task = polish_task_service
@@ -171,6 +173,9 @@ class SchedulerService:
         self._seller_fill_task_handle = asyncio.create_task(self._run_seller_fill_loop())
         self._dm_send_task_handle = asyncio.create_task(self._run_dm_send_loop())
         self._auto_order_task_handle = asyncio.create_task(self._run_auto_order_loop())
+        self._subscription_expiry_task_handle = asyncio.create_task(
+            self._run_subscription_expiry_loop()
+        )
         logger.info("[定时任务调度] 已启动")
     
     def stop(self) -> None:
@@ -240,6 +245,9 @@ class SchedulerService:
         if self._auto_order_task_handle:
             self._auto_order_task_handle.cancel()
             self._auto_order_task_handle = None
+        if self._subscription_expiry_task_handle:
+            self._subscription_expiry_task_handle.cancel()
+            self._subscription_expiry_task_handle = None
         logger.info("[定时任务调度] 已停止")
     
     def get_task_status(self) -> dict:
@@ -1139,6 +1147,33 @@ class SchedulerService:
                 break
 
         logger.info("[定时任务调度] 采集商品自动下单任务循环结束")
+
+    async def _expire_due_subscriptions_once(self) -> int:
+        async with async_session_maker() as session:
+            async with session.begin():
+                return await SubscriptionLifecycleService(session).expire_due_subscriptions(
+                    limit=500
+                )
+
+    async def _run_subscription_expiry_loop(self) -> None:
+        logger.info("[定时任务调度] 订阅到期扫描循环开始")
+        while self._running:
+            try:
+                expired_count = await self._expire_due_subscriptions_once()
+                if expired_count:
+                    logger.info(f"[定时任务调度] 已降级到期订阅 {expired_count} 个")
+            except asyncio.CancelledError:
+                logger.info("[定时任务调度] 订阅到期扫描被取消")
+                break
+            except Exception as exc:
+                logger.error(f"[定时任务调度] 订阅到期扫描异常: {exc}")
+
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                logger.info("[定时任务调度] 订阅到期扫描等待被取消")
+                break
+        logger.info("[定时任务调度] 订阅到期扫描循环结束")
 
 
 # 全局实例获取函数

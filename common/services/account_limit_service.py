@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.models.user import User
 from common.models.xy_account import XYAccount
+from common.services.subscription_feature_service import SubscriptionFeatureService
 
 
 class AccountLimitExceededError(ValueError):
@@ -41,7 +42,8 @@ class AccountLimitService:
             select(func.count()).select_from(XYAccount).where(XYAccount.owner_id == owner_id)
         )
         used_count = result.scalar() or 0
-        account_limit = int(user.account_limit) if user.account_limit is not None else None
+        entitlements = await SubscriptionFeatureService(self.session).get_entitlements(owner_id)
+        account_limit = int(entitlements["account_limit"])
         return {
             "account_limit": account_limit,
             "used_count": used_count,

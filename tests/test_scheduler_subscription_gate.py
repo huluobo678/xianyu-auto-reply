@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scheduler'))
 
 from app.services.scheduler.listing_monitor_task import ListingMonitorTaskService  # noqa: E402
+from app.services.scheduler_service import SchedulerService  # noqa: E402
 from common.models.user import UserRole  # noqa: E402
 
 
@@ -26,6 +27,30 @@ class FakeSessionContext:
     async def get(self, _model, _user_id):
         return self.user
 
+
+
+class AsyncContext:
+    def __init__(self, value=None):
+        self.value = value or self
+        self.entered = False
+        self.exited = False
+
+    async def __aenter__(self):
+        self.entered = True
+        return self.value
+
+    async def __aexit__(self, _exc_type, _exc, _traceback):
+        self.exited = True
+        return False
+
+
+class SchedulerSession(AsyncContext):
+    def __init__(self):
+        super().__init__(self)
+        self.transaction = AsyncContext()
+
+    def begin(self):
+        return self.transaction
 
 class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_owner_is_denied(self):
@@ -65,3 +90,22 @@ class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(allowed)
         feature_check.assert_awaited_once_with(2, ('listing_monitor',))
+    async def test_subscription_expiry_scan_uses_transaction_and_batch_limit(self):
+        session = SchedulerSession()
+        lifecycle = AsyncMock(return_value=4)
+
+        with patch(
+            "app.services.scheduler_service.async_session_maker",
+            return_value=session,
+        ), patch(
+            "app.services.scheduler_service.SubscriptionLifecycleService.expire_due_subscriptions",
+            new=lifecycle,
+        ):
+            count = await SchedulerService()._expire_due_subscriptions_once()
+
+        self.assertEqual(count, 4)
+        lifecycle.assert_awaited_once_with(limit=500)
+        self.assertTrue(session.entered)
+        self.assertTrue(session.exited)
+        self.assertTrue(session.transaction.entered)
+        self.assertTrue(session.transaction.exited)

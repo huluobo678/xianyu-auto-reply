@@ -70,17 +70,16 @@ class BillingEntitlementService:
         if missing:
             raise BillingEntitlementError(f'Plan snapshot missing: {", ".join(missing)}')
 
-        user = await self.session.scalar(
-            select(User).where(User.id == order.user_id).with_for_update()
-        )
-        if not user:
-            raise BillingEntitlementError('Order user not found')
-
         subscription = await self.session.scalar(
             select(UserSubscription)
             .where(UserSubscription.user_id == order.user_id)
             .with_for_update()
         )
+        user = await self.session.scalar(
+            select(User).where(User.id == order.user_id).with_for_update()
+        )
+        if not user:
+            raise BillingEntitlementError('Order user not found')
         duration_months = int(snapshot['duration_months'])
         same_active_plan = bool(
             subscription
