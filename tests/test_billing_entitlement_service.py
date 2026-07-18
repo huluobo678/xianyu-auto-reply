@@ -51,7 +51,7 @@ class BillingEntitlementServiceTests(unittest.IsolatedAsyncioTestCase):
                 'duration_months': 1,
                 'account_limit': 2,
                 'monthly_ai_quota': 1000,
-                'feature_flags': {'auto_delivery': True},
+                'feature_flags': ['basic_auto_delivery', 'ai_reply'],
             },
             amount=Decimal('39.00'),
             status='pending',
@@ -79,6 +79,7 @@ class BillingEntitlementServiceTests(unittest.IsolatedAsyncioTestCase):
         grant = next(value for value in session.added if isinstance(value, AIQuotaGrant))
         ledger = next(value for value in session.added if isinstance(value, EntitlementLedger))
         self.assertEqual(subscription.plan_code, 'standard')
+        self.assertEqual(subscription.feature_snapshot, ['basic_auto_delivery', 'ai_reply'])
         self.assertEqual(subscription.expires_at, datetime(2026, 8, 18, 12, 0, 0))
         self.assertEqual(quota.package_quota, 1000)
         self.assertEqual(grant.total_quota, 1000)

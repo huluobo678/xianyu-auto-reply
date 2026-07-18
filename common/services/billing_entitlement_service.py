@@ -19,6 +19,13 @@ class BillingEntitlementError(RuntimeError):
 class BillingEntitlementService:
     def __init__(self, session: AsyncSession):
         self.session = session
+    @staticmethod
+    def _normalize_feature_flags(value: object) -> list[str]:
+        if isinstance(value, dict):
+            return [str(key) for key, enabled in value.items() if enabled]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value]
+        raise BillingEntitlementError('Plan feature flags must be a list or object')
 
     async def grant_locked_order(
         self,
@@ -97,7 +104,7 @@ class BillingEntitlementService:
                 status='active',
                 account_limit=int(snapshot['account_limit']),
                 monthly_ai_quota=int(snapshot['monthly_ai_quota']),
-                feature_snapshot=dict(snapshot['feature_flags']),
+                feature_snapshot=self._normalize_feature_flags(snapshot['feature_flags']),
                 current_period_start=period_start,
                 current_period_end=period_end,
                 starts_at=now,
@@ -112,7 +119,7 @@ class BillingEntitlementService:
             subscription.status = 'active'
             subscription.account_limit = int(snapshot['account_limit'])
             subscription.monthly_ai_quota = int(snapshot['monthly_ai_quota'])
-            subscription.feature_snapshot = dict(snapshot['feature_flags'])
+            subscription.feature_snapshot = self._normalize_feature_flags(snapshot['feature_flags'])
             subscription.current_period_start = period_start
             subscription.current_period_end = period_end
             if not same_active_plan:
