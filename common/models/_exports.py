@@ -80,6 +80,12 @@ from common.models.billing import (
     UserSubscription,
 )
 
+from common.models.redemption import (
+    RedemptionBatch,
+    RedemptionCode,
+    RedemptionRecord,
+)
+
 __all__ = [
     "BillingPlan",
     "BillingPlanPrice",
@@ -158,4 +164,7 @@ __all__ = [
     "AIUserMonthlyUsage",
     "AIAccountMonthlyUsage",
     "AIUsageRequest",
+    "RedemptionBatch",
+    "RedemptionCode",
+    "RedemptionRecord",
 ]

@@ -1730,6 +1730,79 @@ class DatabaseInitializer:
                 INDEX idx_ai_usage_grant (quota_grant_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         """,
+
+        # 50. 兑换码批次表
+        "xy_redemption_batches": """
+            CREATE TABLE IF NOT EXISTS xy_redemption_batches (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '批次ID',
+                batch_no VARCHAR(64) NOT NULL COMMENT '批次编号',
+                product_type VARCHAR(24) NOT NULL COMMENT '产品类型：plan/ai_quota_package',
+                product_code VARCHAR(32) NOT NULL COMMENT '产品编码',
+                product_name VARCHAR(128) NOT NULL COMMENT '产品名称快照',
+                billing_cycle VARCHAR(16) DEFAULT NULL COMMENT '套餐计费周期：monthly/quarterly',
+                duration_months INT DEFAULT NULL COMMENT '套餐月数',
+                validity_days INT DEFAULT NULL COMMENT '加量包有效期天数',
+                ai_unlimited TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益',
+                quantity INT NOT NULL COMMENT '申请数量',
+                generated_count INT NOT NULL DEFAULT 0 COMMENT '已生成数量',
+                used_count INT NOT NULL DEFAULT 0 COMMENT '已兑换数量',
+                expires_at DATETIME DEFAULT NULL COMMENT '批次过期时间',
+                exported_at DATETIME DEFAULT NULL COMMENT '一次性导出时间',
+                disabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否禁用',
+                disable_reason VARCHAR(255) DEFAULT NULL COMMENT '禁用原因',
+                created_by BIGINT NOT NULL COMMENT '创建管理员ID',
+                details JSON DEFAULT NULL COMMENT '批次详情',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                UNIQUE KEY uk_redemption_batch_no (batch_no),
+                INDEX idx_rb_product_code (product_type, product_code),
+                INDEX idx_rb_disabled_created (disabled, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换码批次表';
+        """,
+
+        # 51. 兑换码表（只存 HMAC 摘要与尾4位，不存完整码）
+        "xy_redemption_codes": """
+            CREATE TABLE IF NOT EXISTS xy_redemption_codes (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '兑换码ID',
+                batch_id BIGINT NOT NULL COMMENT '所属批次ID',
+                code_digest VARCHAR(64) NOT NULL COMMENT '兑换码HMAC-SHA256摘要',
+                code_last4 VARCHAR(4) NOT NULL COMMENT '兑换码尾4位',
+                status VARCHAR(16) NOT NULL DEFAULT 'unused' COMMENT '状态：unused/used/disabled/expired',
+                used_by BIGINT DEFAULT NULL COMMENT '兑换用户ID',
+                used_at DATETIME DEFAULT NULL COMMENT '兑换时间',
+                redemption_record_id BIGINT DEFAULT NULL COMMENT '兑换记录ID',
+                expires_at DATETIME DEFAULT NULL COMMENT '单码过期时间',
+                disabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否禁用',
+                disable_reason VARCHAR(255) DEFAULT NULL COMMENT '禁用原因',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                UNIQUE KEY uk_redemption_code_digest (code_digest),
+                INDEX idx_rc_batch_id (batch_id),
+                INDEX idx_rc_batch_status (batch_id, status),
+                INDEX idx_rc_used_by (used_by)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换码表';
+        """,
+
+        # 52. 兑换审计记录表
+        "xy_redemption_records": """
+            CREATE TABLE IF NOT EXISTS xy_redemption_records (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '记录ID',
+                code_id BIGINT NOT NULL COMMENT '兑换码ID',
+                batch_id BIGINT NOT NULL COMMENT '所属批次ID',
+                user_id BIGINT NOT NULL COMMENT '兑换用户ID',
+                product_type VARCHAR(24) NOT NULL COMMENT '产品类型',
+                product_code VARCHAR(32) NOT NULL COMMENT '产品编码',
+                grant_id BIGINT DEFAULT NULL COMMENT '关联的AIQuotaGrant ID',
+                ledger_id BIGINT DEFAULT NULL COMMENT '关联的EntitlementLedger ID',
+                idempotency_key VARCHAR(191) NOT NULL COMMENT '幂等键',
+                details JSON DEFAULT NULL COMMENT '兑换详情',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                UNIQUE KEY uk_redemption_record_idempotency (idempotency_key),
+                INDEX idx_rr_user_created (user_id, created_at),
+                INDEX idx_rr_batch_id (batch_id),
+                INDEX idx_rr_batch_code (batch_id, code_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换审计记录表';
+        """,
     }
     
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
@@ -1744,6 +1817,25 @@ class DatabaseInitializer:
             ("entitlement_attempts", "INT NOT NULL DEFAULT 0", "entitlement_status"),
             ("entitlement_error", "VARCHAR(500) DEFAULT NULL", "entitlement_attempts"),
             ("notify_received_at", "DATETIME DEFAULT NULL", "entitlement_error"),
+        ],
+        "xy_billing_plans": [
+            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "monthly_ai_quota"),
+        ],
+        "xy_ai_quota_packages": [
+            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "bonus_quota"),
+        ],
+        "xy_ai_quota_grants": [
+            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "remaining_quota"),
+        ],
+        "xy_user_subscriptions": [
+            ("pending_plan_code", "VARCHAR(32) DEFAULT NULL COMMENT '待生效降级套餐编码'", "pending_plan_id"),
+            ("pending_billing_cycle", "VARCHAR(16) DEFAULT NULL COMMENT '待生效计费周期'", "pending_plan_code"),
+            ("pending_duration_months", "INT DEFAULT NULL COMMENT '待生效月数'", "pending_billing_cycle"),
+            ("pending_account_limit", "INT DEFAULT NULL COMMENT '待生效账号上限'", "pending_duration_months"),
+            ("pending_monthly_ai_quota", "BIGINT DEFAULT NULL COMMENT '待生效月度AI额度'", "pending_account_limit"),
+            ("pending_ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '待生效是否无限'", "pending_monthly_ai_quota"),
+            ("pending_feature_snapshot", "JSON DEFAULT NULL COMMENT '待生效特征快照'", "pending_ai_unlimited"),
+            ("pending_source", "VARCHAR(24) DEFAULT NULL COMMENT '待生效来源'", "pending_feature_snapshot"),
         ],
         "xy_listing_monitor_tasks": [
             ("monitor_type", "VARCHAR(20) NOT NULL DEFAULT 'listing' COMMENT '监控类型：listing-上新监控，price_drop-降价监控'", "owner_id"),
@@ -3408,15 +3500,17 @@ class DatabaseInitializer:
             for plan in PLAN_CATALOG:
                 params = dict(plan)
                 params['feature_flags'] = json.dumps(DEFAULT_FEATURE_FLAGS[plan['code']])
+                params['ai_unlimited'] = 1 if plan.get('ai_unlimited') else 0
                 await session.execute(text("""
                     INSERT INTO xy_billing_plans
-                    (code, name, account_limit, monthly_ai_quota,
+                    (code, name, account_limit, monthly_ai_quota, ai_unlimited,
                      feature_flags, is_free, enabled, sort_order)
-                    VALUES (:code, :name, :account_limit, :monthly_ai_quota,
+                    VALUES (:code, :name, :account_limit, :monthly_ai_quota, :ai_unlimited,
                             :feature_flags, :is_free, 1, :sort_order)
                     ON DUPLICATE KEY UPDATE
                     name=VALUES(name), account_limit=VALUES(account_limit),
                     monthly_ai_quota=VALUES(monthly_ai_quota),
+                    ai_unlimited=VALUES(ai_unlimited),
                     feature_flags=VALUES(feature_flags),
                     is_free=VALUES(is_free), sort_order=VALUES(sort_order)
                 """), params)
@@ -3440,23 +3534,33 @@ class DatabaseInitializer:
                     'months': months, 'amount': amount,
                 })
 
-            for code, name, base, bonus, amount, days, sort_order in AI_QUOTA_PACKAGES:
+            for code, name, base, bonus, ai_unlimited, amount, days, sort_order in AI_QUOTA_PACKAGES:
                 await session.execute(text("""
                     INSERT INTO xy_ai_quota_packages
-                    (code, name, base_quota, bonus_quota, amount,
+                    (code, name, base_quota, bonus_quota, ai_unlimited, amount,
                      validity_days, enabled, sort_order)
-                    VALUES (:code, :name, :base, :bonus, :amount,
+                    VALUES (:code, :name, :base, :bonus, :ai_unlimited, :amount,
                             :days, 1, :sort_order)
                     ON DUPLICATE KEY UPDATE
                     name=VALUES(name), base_quota=VALUES(base_quota),
-                    bonus_quota=VALUES(bonus_quota), amount=VALUES(amount),
-                    validity_days=VALUES(validity_days),
+                    bonus_quota=VALUES(bonus_quota), ai_unlimited=VALUES(ai_unlimited),
+                    amount=VALUES(amount), validity_days=VALUES(validity_days),
                     sort_order=VALUES(sort_order)
                 """), {
                     'code': code, 'name': name, 'base': base,
-                    'bonus': bonus, 'amount': amount,
-                    'days': days, 'sort_order': sort_order,
+                    'bonus': bonus, 'ai_unlimited': 1 if ai_unlimited else 0,
+                    'amount': amount, 'days': days, 'sort_order': sort_order,
                 })
+
+            # 第一版只支持月卡/季卡，禁用年付价格（不破坏性删除）。
+            await session.execute(text(
+                "UPDATE xy_billing_plan_prices SET enabled=0 WHERE billing_cycle='yearly'"
+            ))
+            # 废弃旧加量包码（轻量包 ai_light、旧大额包 ai_large），保留历史不删除。
+            await session.execute(text(
+                "UPDATE xy_ai_quota_packages SET enabled=0 "
+                "WHERE code IN ('ai_light','ai_large')"
+            ))
             await session.commit()
 
     async def init_scheduled_tasks(self):
