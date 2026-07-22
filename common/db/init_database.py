@@ -31,65 +31,78 @@ from common.db.default_publish_addresses import (
 )
 from common.db.session import async_engine, async_session_maker
 from common.models.billing import (
-    AIQuotaGrant, AIQuotaPackage, BillingOrder, BillingPlan,
-    BillingPlanPrice, EntitlementLedger, UserSubscription,
+    AIQuotaGrant,
+    AIQuotaPackage,
+    BillingOrder,
+    BillingPlan,
+    BillingPlanPrice,
+    EntitlementLedger,
+    UserSubscription,
 )
 from common.services.billing_catalog import (
-    AI_QUOTA_PACKAGES, DEFAULT_FEATURE_FLAGS, PLAN_CATALOG, PLAN_PRICES,
+    AI_QUOTA_PACKAGES,
+    DEFAULT_FEATURE_FLAGS,
+    PLAN_CATALOG,
+    PLAN_PRICES,
 )
 from common.utils.time_utils import get_beijing_now_naive
-from common.utils.security import generate_secret_key, get_password_hash, is_strong_password
+from common.utils.security import (
+    generate_secret_key,
+    get_password_hash,
+    is_strong_password,
+)
 
 
 @contextmanager
 def suppress_db_warnings():
     """
     上下文管理器：抑制数据库初始化时的重复警告日志
-    
+
     包括：
     - Table 'xxx' already exists
     - Duplicate entry 'xxx' for key 'PRIMARY'
     """
     # 保存原始日志级别
-    
+
     # 过滤MySQL警告
-    warnings.filterwarnings('ignore', category=SAWarning)
-    
+    warnings.filterwarnings("ignore", category=SAWarning)
+
     # 设置自定义过滤器
     class DBInitFilter(logging.Filter):
         """过滤数据库初始化时的常见警告"""
+
         IGNORE_PATTERNS = [
-            'already exists',
-            'Duplicate entry',
+            "already exists",
+            "Duplicate entry",
         ]
-        
+
         def filter(self, record):
             msg = record.getMessage()
             for pattern in self.IGNORE_PATTERNS:
                 if pattern in msg:
                     return False
             return True
-    
+
     db_filter = DBInitFilter()
-    
+
     # 添加过滤器到所有相关logger
     loggers_to_filter = [
-        logging.getLogger('sqlalchemy.engine'),
-        logging.getLogger('sqlalchemy.pool'),
-        logging.getLogger('asyncmy'),
+        logging.getLogger("sqlalchemy.engine"),
+        logging.getLogger("sqlalchemy.pool"),
+        logging.getLogger("asyncmy"),
         logging.getLogger(),  # root logger
     ]
-    
+
     for lg in loggers_to_filter:
         lg.addFilter(db_filter)
-    
+
     try:
         yield
     finally:
         # 恢复原始状态
         for lg in loggers_to_filter:
             lg.removeFilter(db_filter)
-        warnings.filterwarnings('default', category=SAWarning)
+        warnings.filterwarnings("default", category=SAWarning)
 
 
 class DatabaseInitializer:
@@ -310,11 +323,11 @@ class DatabaseInitializer:
             "定时查询已私信且未下单的采集商品，用监控任务配置的下单账号创建订单（拍下，不自动付款）",
         ),
     )
-    
+
     # ========== 所有数据表的DDL定义 ==========
     # 表名统一使用 xy_ 前缀
     # 所有表都有主键，无外键约束
-    
+
     TABLES_DDL = {
         # 1. 用户表
         "xy_users": """
@@ -337,7 +350,6 @@ class DatabaseInitializer:
                 INDEX idx_user_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
         """,
-
         # 2. 用户设置表
         "xy_user_settings": """
             CREATE TABLE IF NOT EXISTS xy_user_settings (
@@ -352,7 +364,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_user_key (user_id, `key`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户设置表';
         """,
-        
         # 3. 系统设置表
         "xy_system_settings": """
             CREATE TABLE IF NOT EXISTS xy_system_settings (
@@ -362,7 +373,6 @@ class DatabaseInitializer:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统设置表';
         """,
-        
         # 4. 闲鱼账号表
         "xy_accounts": """
             CREATE TABLE IF NOT EXISTS xy_accounts (
@@ -403,7 +413,6 @@ class DatabaseInitializer:
                 INDEX idx_account_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='闲鱼账号表';
         """,
-
         # 5. 关键词规则表
         "xy_keyword_rules": """
             CREATE TABLE IF NOT EXISTS xy_keyword_rules (
@@ -426,7 +435,6 @@ class DatabaseInitializer:
                 INDEX idx_kw_account_active (account_id, is_active)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='关键词规则表';
         """,
-        
         # 6. 商品目录表
         "xy_catalog_items": """
             CREATE TABLE IF NOT EXISTS xy_catalog_items (
@@ -448,7 +456,6 @@ class DatabaseInitializer:
                 INDEX idx_cat_owner_created (owner_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品目录表';
         """,
-        
         # 8. 订单表
         "xy_orders": """
             CREATE TABLE IF NOT EXISTS xy_orders (
@@ -492,7 +499,6 @@ class DatabaseInitializer:
                 INDEX idx_order_owner_account_buyer_created (owner_id, account_id, buyer_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单表';
         """,
-
         # 9. 卡券表
         "xy_cards": """
             CREATE TABLE IF NOT EXISTS xy_cards (
@@ -523,7 +529,6 @@ class DatabaseInitializer:
                 INDEX idx_cards_dockable_enabled (is_dockable, enabled)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='卡券表';
         """,
-        
         # 10. 默认回复表
         "xy_default_replies": """
             CREATE TABLE IF NOT EXISTS xy_default_replies (
@@ -544,7 +549,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_account_item (account_id, item_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='默认回复表';
         """,
-        
         # 11. 默认回复记录表
         "xy_default_reply_records": """
             CREATE TABLE IF NOT EXISTS xy_default_reply_records (
@@ -558,7 +562,6 @@ class DatabaseInitializer:
                 INDEX idx_account_item_user (account_id, item_id, user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='默认回复记录表';
         """,
-        
         # 12. AI聊天消息表
         "xy_ai_chat_messages": """
             CREATE TABLE IF NOT EXISTS xy_ai_chat_messages (
@@ -577,7 +580,6 @@ class DatabaseInitializer:
                 INDEX ix_ai_chat_messages_intent (cookie_id, intent)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI聊天消息表';
         """,
-
         # 14. 风控日志表
         "xy_risk_control_logs": """
             CREATE TABLE IF NOT EXISTS xy_risk_control_logs (
@@ -603,7 +605,6 @@ class DatabaseInitializer:
                 INDEX idx_rcl_owner_created (owner_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='风控日志表';
         """,
-
         # 14.1 账号登录日志表（记录密码登录的每一次尝试与最终结果）
         "xy_account_login_logs": """
             CREATE TABLE IF NOT EXISTS xy_account_login_logs (
@@ -626,7 +627,6 @@ class DatabaseInitializer:
                 INDEX idx_all_owner_created (owner_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账号登录日志表';
         """,
-        
         # 15. 通知渠道表
         "xy_notification_channels": """
             CREATE TABLE IF NOT EXISTS xy_notification_channels (
@@ -642,7 +642,6 @@ class DatabaseInitializer:
                 INDEX idx_channel_type (channel_type)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知渠道表';
         """,
-        
         # 16. 消息通知表
         "xy_message_notifications": """
             CREATE TABLE IF NOT EXISTS xy_message_notifications (
@@ -659,7 +658,6 @@ class DatabaseInitializer:
                 INDEX idx_channel_id (channel_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息通知表';
         """,
-
         # 17. 消息过滤规则表
         "xy_message_filters": """
             CREATE TABLE IF NOT EXISTS xy_message_filters (
@@ -675,7 +673,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_account_keyword_type (account_id, keyword, filter_type)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息过滤规则表';
         """,
-        
         # 18. 意见反馈表
         "xy_feedbacks": """
             CREATE TABLE IF NOT EXISTS xy_feedbacks (
@@ -696,7 +693,6 @@ class DatabaseInitializer:
                 INDEX idx_feedback_type (feedback_type)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='意见反馈表';
         """,
-
         # 18.1 意见反馈消息表（对话记录）
         "xy_feedback_messages": """
             CREATE TABLE IF NOT EXISTS xy_feedback_messages (
@@ -710,7 +706,6 @@ class DatabaseInitializer:
                 INDEX idx_feedback_id (feedback_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='意见反馈消息表';
         """,
-
         # 18.2 广告表
         "xy_advertisements": """
             CREATE TABLE IF NOT EXISTS xy_advertisements (
@@ -733,7 +728,6 @@ class DatabaseInitializer:
                 INDEX idx_expire_date (expire_date)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='广告表';
         """,
-
         # 19. Goofish 定时抓取任务表
         "xy_goofish_crawl_jobs": """
             CREATE TABLE IF NOT EXISTS xy_goofish_crawl_jobs (
@@ -757,7 +751,6 @@ class DatabaseInitializer:
                 INDEX idx_enabled (enabled)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         """,
-
         # 20. Goofish 定时抓取商品表
         "xy_goofish_crawl_items": """
             CREATE TABLE IF NOT EXISTS xy_goofish_crawl_items (
@@ -782,7 +775,6 @@ class DatabaseInitializer:
                 INDEX idx_fetched_at (fetched_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         """,
-
         # 21. 定时补发货执行日志表
         "xy_scheduled_redelivery_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_redelivery_log` (
@@ -802,7 +794,6 @@ class DatabaseInitializer:
                 INDEX `idx_srl_batch_created_status` (`batch_id`, `created_at`, `status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时补发货执行日志表';
         """,
-
         # 22. 公告信息表
         "xy_announcements": """
             CREATE TABLE IF NOT EXISTS xy_announcements (
@@ -814,7 +805,6 @@ class DatabaseInitializer:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='公告信息表';
         """,
-
         # 22.1 弹窗公告表（用户每次登录时弹窗展示）
         "xy_popup_announcements": """
             CREATE TABLE IF NOT EXISTS xy_popup_announcements (
@@ -828,7 +818,6 @@ class DatabaseInitializer:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='弹窗公告表';
         """,
-
         # 23. 确认收货消息表
         "xy_confirm_receipt_messages": """
             CREATE TABLE IF NOT EXISTS xy_confirm_receipt_messages (
@@ -842,7 +831,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_account_id (account_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='确认收货消息配置表';
         """,
-
         # 24. 自动评价配置表
         "xy_auto_rate_configs": """
             CREATE TABLE IF NOT EXISTS xy_auto_rate_configs (
@@ -857,7 +845,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_account_id (account_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自动评价配置表';
         """,
-
         # 25. 定时补评价执行日志表
         "xy_scheduled_rate_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_rate_log` (
@@ -877,7 +864,6 @@ class DatabaseInitializer:
                 INDEX `idx_srate_batch_created_status` (`batch_id`, `created_at`, `status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时补评价执行日志表';
         """,
-
         # 26. 定时擦亮执行日志表
         "xy_scheduled_polish_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_polish_log` (
@@ -897,7 +883,6 @@ class DatabaseInitializer:
                 INDEX `idx_spol_batch_created_status` (`batch_id`, `created_at`, `status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时擦亮执行日志表';
         """,
-
         # 26.1 登录续期执行日志表
         "xy_scheduled_login_renew_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_login_renew_log` (
@@ -914,7 +899,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录续期执行日志表';
         """,
-
         # 26.2 Cookie续期计划表
         "xy_cookie_refresh_schedules": """
             CREATE TABLE IF NOT EXISTS `xy_cookie_refresh_schedules` (
@@ -932,7 +916,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cookie续期计划表';
         """,
-
         # 26.3 COOKIES刷新日志表
         "xy_scheduled_cookies_refresh_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_cookies_refresh_log` (
@@ -952,7 +935,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='COOKIES刷新日志表';
         """,
-
         # 26.4 接口续期Cookies执行日志表
         "xy_scheduled_api_cookie_renew_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_api_cookie_renew_log` (
@@ -973,7 +955,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='接口续期Cookies执行日志表';
         """,
-
         # 27. 定时任务配置表
         "xy_scheduled_tasks": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_tasks` (
@@ -989,7 +970,6 @@ class DatabaseInitializer:
                 UNIQUE KEY `uk_task_code` (`task_code`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务配置表';
         """,
-
         # 28. 卡券与商品多对多关联表
         "xy_card_item_relations": """
             CREATE TABLE IF NOT EXISTS xy_card_item_relations (
@@ -1008,7 +988,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_card_item_dock (card_id, item_id, dock_record_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='卡券商品关联表';
         """,
-
         # 29. 对接记录表
         "xy_dock_records": """
             CREATE TABLE IF NOT EXISTS xy_dock_records (
@@ -1037,7 +1016,6 @@ class DatabaseInitializer:
                 INDEX idx_dock_source_level (source_user_id, level)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对接记录表';
         """,
-
         # 30. 资金流水表
         "xy_fund_flows": """
             CREATE TABLE IF NOT EXISTS xy_fund_flows (
@@ -1059,7 +1037,6 @@ class DatabaseInitializer:
                 INDEX idx_ff_user_type_id_desc (user_id, type, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='资金流水表';
         """,
-
         # 31. 充值订单表
         "xy_recharge_orders": """
             CREATE TABLE IF NOT EXISTS xy_recharge_orders (
@@ -1078,7 +1055,6 @@ class DatabaseInitializer:
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='充值订单表';
         """,
-
         # 32. 对接码绑定表
         "xy_dock_code_bindings": """
             CREATE TABLE IF NOT EXISTS xy_dock_code_bindings (
@@ -1092,7 +1068,6 @@ class DatabaseInitializer:
                 INDEX idx_target_user_id (target_user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对接码绑定表';
         """,
-
         # 33. 代理订单表（对接卡券发货记录）
         "xy_agent_orders": """
             CREATE TABLE IF NOT EXISTS xy_agent_orders (
@@ -1128,7 +1103,6 @@ class DatabaseInitializer:
                 INDEX idx_ao_upstream_status (upstream_user_id, status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='代理订单表';
         """,
-
         # 34. Token缓存表
         "xy_token_cache": """
             CREATE TABLE IF NOT EXISTS xy_token_cache (
@@ -1142,7 +1116,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_user_id (user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token缓存表';
         """,
-
         # 35. 结算记录表
         "xy_settlement_records": """
             CREATE TABLE IF NOT EXISTS xy_settlement_records (
@@ -1160,7 +1133,6 @@ class DatabaseInitializer:
                 INDEX idx_sr_user_created_id (user_id, created_at, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='结算记录表';
         """,
-
         # 36. 激活码生成日志表
         "xy_activation_logs": """
             CREATE TABLE IF NOT EXISTS xy_activation_logs (
@@ -1176,7 +1148,6 @@ class DatabaseInitializer:
                 INDEX idx_machine_type_time (machine_id, code_type, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='激活码生成日志表';
         """,
-
         # 37. 商品素材库表
         "xy_product_materials": """
             CREATE TABLE IF NOT EXISTS xy_product_materials (
@@ -1201,7 +1172,6 @@ class DatabaseInitializer:
                 INDEX idx_pm_user_created (user_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品素材库表';
         """,
-
         # 38.1 定时求小红花执行日志表
         "xy_scheduled_red_flower_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_red_flower_log` (
@@ -1219,7 +1189,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时求小红花执行日志表';
         """,
-
         # 38.2 账号消息通知关闭执行日志表
         "xy_scheduled_close_notice_log": """
             CREATE TABLE IF NOT EXISTS `xy_scheduled_close_notice_log` (
@@ -1236,7 +1205,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账号消息通知关闭执行日志表';
         """,
-
         # 38.3 数据库备份日志表（记录每次数据库备份任务的结果与备份文件信息）
         "xy_db_backup_log": """
             CREATE TABLE IF NOT EXISTS `xy_db_backup_log` (
@@ -1256,7 +1224,6 @@ class DatabaseInitializer:
                 INDEX `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据库备份日志表';
         """,
-
         "xy_auto_reply_message_logs": """
             CREATE TABLE IF NOT EXISTS xy_auto_reply_message_logs (
                 id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
@@ -1317,7 +1284,6 @@ class DatabaseInitializer:
                 INDEX idx_arml_strategy_order_id (reply_strategy, order_no, id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自动回复消息日志表';
         """,
-
         "xy_publish_addresses": """
             CREATE TABLE IF NOT EXISTS xy_publish_addresses (
                 id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
@@ -1339,7 +1305,6 @@ class DatabaseInitializer:
                 INDEX idx_pa_sort_created (sort_order, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品发布随机地址池表';
         """,
-
         "xy_user_publish_addresses": """
             CREATE TABLE IF NOT EXISTS xy_user_publish_addresses (
                 id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
@@ -1354,7 +1319,6 @@ class DatabaseInitializer:
                 INDEX idx_upa_owner_addr (owner_id, address)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个人发布地址库表';
         """,
-
         # 38. 商品发布日志表
         "xy_publish_logs": """
             CREATE TABLE IF NOT EXISTS xy_publish_logs (
@@ -1383,7 +1347,6 @@ class DatabaseInitializer:
                 INDEX idx_publish_user_created (user_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品发布日志表';
         """,
-
         # 45.1 商品上新监控任务表
         # 45.1 商品监控分类表
         "xy_listing_monitor_categories": """
@@ -1398,7 +1361,6 @@ class DatabaseInitializer:
                 INDEX idx_lmc_owner_deleted (owner_id, is_deleted)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品监控分类表';
         """,
-
         # 45.2 商品监控任务表
         "xy_listing_monitor_tasks": """
             CREATE TABLE IF NOT EXISTS xy_listing_monitor_tasks (
@@ -1432,7 +1394,6 @@ class DatabaseInitializer:
                 INDEX idx_lmt_category (category_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品上新监控任务表';
         """,
-
         # 45.3 商品监控采集商品信息表
         "xy_listing_monitor_items": """
             CREATE TABLE IF NOT EXISTS xy_listing_monitor_items (
@@ -1484,7 +1445,6 @@ class DatabaseInitializer:
                 INDEX idx_lmi_owner_publish (owner_id, publish_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品监控采集商品信息表';
         """,
-
         # 45.3 商品监控执行日志表
         "xy_listing_monitor_logs": """
             CREATE TABLE IF NOT EXISTS xy_listing_monitor_logs (
@@ -1509,7 +1469,6 @@ class DatabaseInitializer:
                 INDEX idx_lml_created_at (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品监控执行日志表';
         """,
-
         # 45.6 用户级兜底下单账号配置表（任务无可用下单账号时回退使用）
         "xy_order_fallback_accounts": """
             CREATE TABLE IF NOT EXISTS xy_order_fallback_accounts (
@@ -1523,7 +1482,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_ofa_owner_category (owner_id, category_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户级兜底下单账号配置表（按分类配置）';
         """,
-
         # 45.7 用户级兜底采集账号配置表（任务无可用采集账号时回退使用）
         "xy_collect_fallback_accounts": """
             CREATE TABLE IF NOT EXISTS xy_collect_fallback_accounts (
@@ -1537,7 +1495,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_cfa_owner_category (owner_id, category_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户级兜底采集账号配置表（按分类配置）';
         """,
-
         # 46. 共享扫码登录会话表
         "xy_shared_scan_sessions": """
             CREATE TABLE IF NOT EXISTS xy_shared_scan_sessions (
@@ -1553,7 +1510,6 @@ class DatabaseInitializer:
                 INDEX idx_owner_id (owner_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='共享扫码登录会话表';
         """,
-
         # 48. 禁止发货规则配置表
         "xy_delivery_block_rules": """
             CREATE TABLE IF NOT EXISTS xy_delivery_block_rules (
@@ -1573,7 +1529,6 @@ class DatabaseInitializer:
                 UNIQUE KEY uk_account_rule (account_id, rule_code)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='禁止发货规则配置表';
         """,
-
         # 47. 共享扫码登录兼职工作者表
         "xy_shared_scan_workers": """
             CREATE TABLE IF NOT EXISTS xy_shared_scan_workers (
@@ -1592,7 +1547,6 @@ class DatabaseInitializer:
                 INDEX idx_account_id (account_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='共享扫码登录兼职工作者表';
         """,
-
         # 49. 个人黑名单表
         "xy_personal_blacklist": """
             CREATE TABLE IF NOT EXISTS xy_personal_blacklist (
@@ -1612,7 +1566,6 @@ class DatabaseInitializer:
                 INDEX idx_pb_owner_created (owner_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='个人黑名单表';
         """,
-
         # 50. 闲鱼黑名单表
         "xy_platform_blacklist": """
             CREATE TABLE IF NOT EXISTS xy_platform_blacklist (
@@ -1627,7 +1580,6 @@ class DatabaseInitializer:
                 INDEX idx_plb_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='闲鱼黑名单表';
         """,
-
         # 51. 在线聊天快捷短语表
         "xy_chat_quick_phrases": """
             CREATE TABLE IF NOT EXISTS xy_chat_quick_phrases (
@@ -1730,7 +1682,6 @@ class DatabaseInitializer:
                 INDEX idx_ai_usage_grant (quota_grant_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         """,
-
         # 50. 兑换码批次表
         "xy_redemption_batches": """
             CREATE TABLE IF NOT EXISTS xy_redemption_batches (
@@ -1759,7 +1710,6 @@ class DatabaseInitializer:
                 INDEX idx_rb_disabled_created (disabled, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换码批次表';
         """,
-
         # 51. 兑换码表（只存 HMAC 摘要与尾4位，不存完整码）
         "xy_redemption_codes": """
             CREATE TABLE IF NOT EXISTS xy_redemption_codes (
@@ -1782,7 +1732,6 @@ class DatabaseInitializer:
                 INDEX idx_rc_used_by (used_by)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换码表';
         """,
-
         # 52. 兑换审计记录表
         "xy_redemption_records": """
             CREATE TABLE IF NOT EXISTS xy_redemption_records (
@@ -1804,7 +1753,7 @@ class DatabaseInitializer:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='兑换审计记录表';
         """,
     }
-    
+
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
     COLUMN_MIGRATIONS = {
         "xy_ai_usage_requests": [
@@ -1819,154 +1768,542 @@ class DatabaseInitializer:
             ("notify_received_at", "DATETIME DEFAULT NULL", "entitlement_error"),
         ],
         "xy_billing_plans": [
-            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "monthly_ai_quota"),
+            (
+                "ai_unlimited",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'",
+                "monthly_ai_quota",
+            ),
         ],
         "xy_ai_quota_packages": [
-            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "bonus_quota"),
+            (
+                "ai_unlimited",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'",
+                "bonus_quota",
+            ),
         ],
         "xy_ai_quota_grants": [
-            ("ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'", "remaining_quota"),
+            (
+                "ai_unlimited",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益'",
+                "remaining_quota",
+            ),
         ],
         "xy_user_subscriptions": [
-            ("pending_plan_code", "VARCHAR(32) DEFAULT NULL COMMENT '待生效降级套餐编码'", "pending_plan_id"),
-            ("pending_billing_cycle", "VARCHAR(16) DEFAULT NULL COMMENT '待生效计费周期'", "pending_plan_code"),
-            ("pending_duration_months", "INT DEFAULT NULL COMMENT '待生效月数'", "pending_billing_cycle"),
-            ("pending_account_limit", "INT DEFAULT NULL COMMENT '待生效账号上限'", "pending_duration_months"),
-            ("pending_monthly_ai_quota", "BIGINT DEFAULT NULL COMMENT '待生效月度AI额度'", "pending_account_limit"),
-            ("pending_ai_unlimited", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '待生效是否无限'", "pending_monthly_ai_quota"),
-            ("pending_feature_snapshot", "JSON DEFAULT NULL COMMENT '待生效特征快照'", "pending_ai_unlimited"),
-            ("pending_source", "VARCHAR(24) DEFAULT NULL COMMENT '待生效来源'", "pending_feature_snapshot"),
+            (
+                "pending_plan_code",
+                "VARCHAR(32) DEFAULT NULL COMMENT '待生效降级套餐编码'",
+                "pending_plan_id",
+            ),
+            (
+                "pending_billing_cycle",
+                "VARCHAR(16) DEFAULT NULL COMMENT '待生效计费周期'",
+                "pending_plan_code",
+            ),
+            (
+                "pending_duration_months",
+                "INT DEFAULT NULL COMMENT '待生效月数'",
+                "pending_billing_cycle",
+            ),
+            (
+                "pending_account_limit",
+                "INT DEFAULT NULL COMMENT '待生效账号上限'",
+                "pending_duration_months",
+            ),
+            (
+                "pending_monthly_ai_quota",
+                "BIGINT DEFAULT NULL COMMENT '待生效月度AI额度'",
+                "pending_account_limit",
+            ),
+            (
+                "pending_ai_unlimited",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '待生效是否无限'",
+                "pending_monthly_ai_quota",
+            ),
+            (
+                "pending_feature_snapshot",
+                "JSON DEFAULT NULL COMMENT '待生效特征快照'",
+                "pending_ai_unlimited",
+            ),
+            (
+                "pending_source",
+                "VARCHAR(24) DEFAULT NULL COMMENT '待生效来源'",
+                "pending_feature_snapshot",
+            ),
         ],
         "xy_listing_monitor_tasks": [
-            ("monitor_type", "VARCHAR(20) NOT NULL DEFAULT 'listing' COMMENT '监控类型：listing-上新监控，price_drop-降价监控'", "owner_id"),
-            ("category_id", "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类）'", "owner_id"),
-            ("collect_pages", "INT NOT NULL DEFAULT 1 COMMENT '每次采集页数'", "interval_minutes"),
-            ("dm_content", "VARCHAR(1000) DEFAULT NULL COMMENT '私信内容（配置下单账号后必填）'", "account_ids"),
-            ("order_account_ids", "JSON DEFAULT NULL COMMENT '下单账号ID列表（多选，私信与下单共用）'", "account_ids"),
-            ("dm_batch_size", "INT NOT NULL DEFAULT 5 COMMENT '每次定时私信任务最多处理条数'", "dm_content"),
-            ("order_batch_size", "INT NOT NULL DEFAULT 5 COMMENT '每次定时下单任务最多处理条数'", "dm_batch_size"),
-            ("publish_days", "INT DEFAULT NULL COMMENT '上新天数筛选（searchFilter 的 publishDays，单位天，NULL/0=不限）'", "price_max"),
-            ("proxy_url", "VARCHAR(255) DEFAULT NULL COMMENT '代理API地址（GET返回IP:PORT列表，取一个作HTTP代理；空=不使用代理）'", "collect_pages"),
-            ("direct_order", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '采集后是否直接下单（开启则新采集商品立即用下单账号下单后再入库）'", "order_batch_size"),
+            (
+                "monitor_type",
+                "VARCHAR(20) NOT NULL DEFAULT 'listing' COMMENT '监控类型：listing-上新监控，price_drop-降价监控'",
+                "owner_id",
+            ),
+            (
+                "category_id",
+                "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类）'",
+                "owner_id",
+            ),
+            (
+                "collect_pages",
+                "INT NOT NULL DEFAULT 1 COMMENT '每次采集页数'",
+                "interval_minutes",
+            ),
+            (
+                "dm_content",
+                "VARCHAR(1000) DEFAULT NULL COMMENT '私信内容（配置下单账号后必填）'",
+                "account_ids",
+            ),
+            (
+                "order_account_ids",
+                "JSON DEFAULT NULL COMMENT '下单账号ID列表（多选，私信与下单共用）'",
+                "account_ids",
+            ),
+            (
+                "dm_batch_size",
+                "INT NOT NULL DEFAULT 5 COMMENT '每次定时私信任务最多处理条数'",
+                "dm_content",
+            ),
+            (
+                "order_batch_size",
+                "INT NOT NULL DEFAULT 5 COMMENT '每次定时下单任务最多处理条数'",
+                "dm_batch_size",
+            ),
+            (
+                "publish_days",
+                "INT DEFAULT NULL COMMENT '上新天数筛选（searchFilter 的 publishDays，单位天，NULL/0=不限）'",
+                "price_max",
+            ),
+            (
+                "proxy_url",
+                "VARCHAR(255) DEFAULT NULL COMMENT '代理API地址（GET返回IP:PORT列表，取一个作HTTP代理；空=不使用代理）'",
+                "collect_pages",
+            ),
+            (
+                "direct_order",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '采集后是否直接下单（开启则新采集商品立即用下单账号下单后再入库）'",
+                "order_batch_size",
+            ),
         ],
         "xy_listing_monitor_logs": [
-            ("used_account_ids", "JSON DEFAULT NULL COMMENT '本次执行实际使用过的账号ID列表（可能多个）'", "account_id"),
-            ("trigger_type", "VARCHAR(10) NOT NULL DEFAULT 'auto' COMMENT '触发方式：auto-定时自动，manual-手动'", "keyword"),
+            (
+                "used_account_ids",
+                "JSON DEFAULT NULL COMMENT '本次执行实际使用过的账号ID列表（可能多个）'",
+                "account_id",
+            ),
+            (
+                "trigger_type",
+                "VARCHAR(10) NOT NULL DEFAULT 'auto' COMMENT '触发方式：auto-定时自动，manual-手动'",
+                "keyword",
+            ),
         ],
         "xy_listing_monitor_items": [
-            ("is_dm_sent", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已私信'", "raw_json"),
-            ("is_ordered", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已下单'", "is_dm_sent"),
-            ("seller_user_id", "VARCHAR(64) DEFAULT NULL COMMENT '卖家真实用户ID（商品详情接口补全）'", "seller_id"),
-            ("detail_json", "MEDIUMTEXT DEFAULT NULL COMMENT '商品详情数据（详情接口返回JSON）'", "raw_json"),
-            ("order_id", "VARCHAR(64) DEFAULT NULL COMMENT '下单成功的订单ID（拍下）'", "is_ordered"),
-            ("order_account_id", "VARCHAR(80) DEFAULT NULL COMMENT '下单成功使用的账号ID（发起私信时严格使用该账号）'", "order_id"),
-            ("dm_status", "VARCHAR(20) DEFAULT NULL COMMENT '私信发送结果：success/failed/unknown'", "is_dm_sent"),
-            ("dm_fail_reason", "VARCHAR(500) DEFAULT NULL COMMENT '私信发送失败原因'", "dm_status"),
-            ("dm_attempts", "INT NOT NULL DEFAULT 0 COMMENT '私信发送尝试次数（失败重试用）'", "dm_fail_reason"),
-            ("order_status", "VARCHAR(20) DEFAULT NULL COMMENT '下单结果：success/failed/duplicate'", "order_id"),
-            ("order_fail_reason", "VARCHAR(500) DEFAULT NULL COMMENT '下单失败原因'", "order_status"),
-            ("order_attempts", "INT NOT NULL DEFAULT 0 COMMENT '下单尝试次数（失败重试用）'", "order_fail_reason"),
-            ("dm_sent_at", "DATETIME DEFAULT NULL COMMENT '实际私信成功/发起时间（用于按日统计私信数）'", "dm_attempts"),
-            ("ordered_at", "DATETIME DEFAULT NULL COMMENT '下单成功时间（用于按日统计下单数）'", "order_attempts"),
-            ("dm_account_id", "VARCHAR(80) DEFAULT NULL COMMENT '成功私信使用的账号ID（后续优先用该账号下单）'", "is_dm_sent"),
-            ("dm_chat_id", "VARCHAR(80) DEFAULT NULL COMMENT '私信会话ID（create-chat 返回的 chat_id）'", "dm_account_id"),
-            ("seller_fill_status", "VARCHAR(20) DEFAULT NULL COMMENT '卖家ID补全结果：failed-明确失败不再补全（如跨境商品/已下架）'", "detail_json"),
-            ("seller_fill_fail_reason", "VARCHAR(500) DEFAULT NULL COMMENT '卖家ID补全失败原因（明确业务失败的原文）'", "seller_fill_status"),
-            ("seller_avatar", "VARCHAR(1000) DEFAULT NULL COMMENT '卖家头像URL'", "seller_nick"),
-            ("tags", "VARCHAR(500) DEFAULT NULL COMMENT '商品营销标签（逗号分隔，如：4天内上新,235人想要）'", "want_count"),
+            (
+                "is_dm_sent",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已私信'",
+                "raw_json",
+            ),
+            (
+                "is_ordered",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已下单'",
+                "is_dm_sent",
+            ),
+            (
+                "seller_user_id",
+                "VARCHAR(64) DEFAULT NULL COMMENT '卖家真实用户ID（商品详情接口补全）'",
+                "seller_id",
+            ),
+            (
+                "detail_json",
+                "MEDIUMTEXT DEFAULT NULL COMMENT '商品详情数据（详情接口返回JSON）'",
+                "raw_json",
+            ),
+            (
+                "order_id",
+                "VARCHAR(64) DEFAULT NULL COMMENT '下单成功的订单ID（拍下）'",
+                "is_ordered",
+            ),
+            (
+                "order_account_id",
+                "VARCHAR(80) DEFAULT NULL COMMENT '下单成功使用的账号ID（发起私信时严格使用该账号）'",
+                "order_id",
+            ),
+            (
+                "dm_status",
+                "VARCHAR(20) DEFAULT NULL COMMENT '私信发送结果：success/failed/unknown'",
+                "is_dm_sent",
+            ),
+            (
+                "dm_fail_reason",
+                "VARCHAR(500) DEFAULT NULL COMMENT '私信发送失败原因'",
+                "dm_status",
+            ),
+            (
+                "dm_attempts",
+                "INT NOT NULL DEFAULT 0 COMMENT '私信发送尝试次数（失败重试用）'",
+                "dm_fail_reason",
+            ),
+            (
+                "order_status",
+                "VARCHAR(20) DEFAULT NULL COMMENT '下单结果：success/failed/duplicate'",
+                "order_id",
+            ),
+            (
+                "order_fail_reason",
+                "VARCHAR(500) DEFAULT NULL COMMENT '下单失败原因'",
+                "order_status",
+            ),
+            (
+                "order_attempts",
+                "INT NOT NULL DEFAULT 0 COMMENT '下单尝试次数（失败重试用）'",
+                "order_fail_reason",
+            ),
+            (
+                "dm_sent_at",
+                "DATETIME DEFAULT NULL COMMENT '实际私信成功/发起时间（用于按日统计私信数）'",
+                "dm_attempts",
+            ),
+            (
+                "ordered_at",
+                "DATETIME DEFAULT NULL COMMENT '下单成功时间（用于按日统计下单数）'",
+                "order_attempts",
+            ),
+            (
+                "dm_account_id",
+                "VARCHAR(80) DEFAULT NULL COMMENT '成功私信使用的账号ID（后续优先用该账号下单）'",
+                "is_dm_sent",
+            ),
+            (
+                "dm_chat_id",
+                "VARCHAR(80) DEFAULT NULL COMMENT '私信会话ID（create-chat 返回的 chat_id）'",
+                "dm_account_id",
+            ),
+            (
+                "seller_fill_status",
+                "VARCHAR(20) DEFAULT NULL COMMENT '卖家ID补全结果：failed-明确失败不再补全（如跨境商品/已下架）'",
+                "detail_json",
+            ),
+            (
+                "seller_fill_fail_reason",
+                "VARCHAR(500) DEFAULT NULL COMMENT '卖家ID补全失败原因（明确业务失败的原文）'",
+                "seller_fill_status",
+            ),
+            (
+                "seller_avatar",
+                "VARCHAR(1000) DEFAULT NULL COMMENT '卖家头像URL'",
+                "seller_nick",
+            ),
+            (
+                "tags",
+                "VARCHAR(500) DEFAULT NULL COMMENT '商品营销标签（逗号分隔，如：4天内上新,235人想要）'",
+                "want_count",
+            ),
         ],
         "xy_order_fallback_accounts": [
-            ("category_id", "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类全局兜底）'", "owner_id"),
-            ("is_deleted", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除（软删除）'", "account_ids"),
+            (
+                "category_id",
+                "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类全局兜底）'",
+                "owner_id",
+            ),
+            (
+                "is_deleted",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除（软删除）'",
+                "account_ids",
+            ),
         ],
         "xy_collect_fallback_accounts": [
-            ("category_id", "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类全局兜底）'", "owner_id"),
-            ("is_deleted", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除（软删除）'", "account_ids"),
+            (
+                "category_id",
+                "BIGINT DEFAULT NULL COMMENT '所属分类ID（NULL=未分类全局兜底）'",
+                "owner_id",
+            ),
+            (
+                "is_deleted",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除（软删除）'",
+                "account_ids",
+            ),
         ],
         "xy_auto_reply_message_logs": [
-            ("send_status", "VARCHAR(20) NOT NULL DEFAULT 'unknown' COMMENT '发送状态：success-发送成功/failed-发送失败/unknown-未知(无响应)/timeout-超时(无响应超过阈值)'", "error_message"),
-            ("send_fail_reason", "TEXT COMMENT '发送失败原因（如被安全拦截的明文文案）'", "send_status"),
-            ("order_no", "VARCHAR(64) DEFAULT NULL COMMENT '订单号（自动发货等场景关联订单）'", "item_title"),
+            (
+                "send_status",
+                "VARCHAR(20) NOT NULL DEFAULT 'unknown' COMMENT '发送状态：success-发送成功/failed-发送失败/unknown-未知(无响应)/timeout-超时(无响应超过阈值)'",
+                "error_message",
+            ),
+            (
+                "send_fail_reason",
+                "TEXT COMMENT '发送失败原因（如被安全拦截的明文文案）'",
+                "send_status",
+            ),
+            (
+                "order_no",
+                "VARCHAR(64) DEFAULT NULL COMMENT '订单号（自动发货等场景关联订单）'",
+                "item_title",
+            ),
         ],
         "xy_risk_control_logs": [
-            ("captcha_engine", "VARCHAR(32) DEFAULT NULL COMMENT '验证通过引擎：playwright-主引擎/drissionpage-兜底引擎/real_mouse-真人鼠标引擎'", "processing_status"),
-            ("call_type", "VARCHAR(16) DEFAULT 'local' COMMENT '调用类型：local-本机/remote-远程(外部凭秘钥调用)'", "captcha_engine"),
-            ("call_user", "VARCHAR(128) DEFAULT NULL COMMENT '调用用户：仅远程调用记录(按秘钥查到的用户名)'", "call_type"),
+            (
+                "captcha_engine",
+                "VARCHAR(32) DEFAULT NULL COMMENT '验证通过引擎：playwright-主引擎/drissionpage-兜底引擎/real_mouse-真人鼠标引擎'",
+                "processing_status",
+            ),
+            (
+                "call_type",
+                "VARCHAR(16) DEFAULT 'local' COMMENT '调用类型：local-本机/remote-远程(外部凭秘钥调用)'",
+                "captcha_engine",
+            ),
+            (
+                "call_user",
+                "VARCHAR(128) DEFAULT NULL COMMENT '调用用户：仅远程调用记录(按秘钥查到的用户名)'",
+                "call_type",
+            ),
         ],
         "xy_accounts": [
-            ("proxy_type", "VARCHAR(20) DEFAULT 'none' COMMENT '代理类型'", "last_refresh_at"),
+            (
+                "proxy_type",
+                "VARCHAR(20) DEFAULT 'none' COMMENT '代理类型'",
+                "last_refresh_at",
+            ),
             ("proxy_host", "VARCHAR(255) COMMENT '代理主机'", "proxy_type"),
             ("proxy_port", "INT COMMENT '代理端口'", "proxy_host"),
             ("proxy_user", "VARCHAR(120) COMMENT '代理用户名'", "proxy_port"),
             ("proxy_pass", "VARCHAR(255) COMMENT '代理密码'", "proxy_user"),
-            ("message_expire_time", "INT DEFAULT 3600 COMMENT '相同消息等待时间(秒)'", "proxy_pass"),
-            ("reply_delay_seconds", "INT DEFAULT 0 COMMENT '自动回复延迟时间(秒)，0表示立即回复'", "message_expire_time"),
-            ("disable_reason", "VARCHAR(255) COMMENT '禁用原因'", "message_expire_time"),
-            ("scheduled_redelivery", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '定时补发货开关'", "disable_reason"),
-            ("scheduled_rate", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '定时补评价开关'", "scheduled_redelivery"),
-            ("auto_polish", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '商品自动擦亮开关'", "scheduled_rate"),
-            ("confirm_before_send", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '发货成功再发卡券开关'", "auto_polish"),
-            ("send_before_confirm", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '卡券发送成功再确认发货开关'", "confirm_before_send"),
-            ("auto_red_flower", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '自动求小红花开关'", "send_before_confirm"),
-            ("delivery_disabled", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '禁止发货开关'", "auto_red_flower"),
-            ("delivery_disabled_reason", "VARCHAR(500) DEFAULT NULL COMMENT '禁止发货原因'", "delivery_disabled"),
-            ("auto_close_order", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '主动关闭订单开关'", "delivery_disabled_reason"),
-            ("delivery_only_card_after_close", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '关闭订单后继续发货（只发卡券）'", "auto_close_order"),
-            ("delivery_disabled_excluded_items", "JSON DEFAULT NULL COMMENT '禁止发货排除商品列表（item_id 数组，命中后按正常流程发货）'", "delivery_only_card_after_close"),
-            ("ai_reply_block_ordered_users", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '已下单用户禁止AI回复'", "delivery_disabled_excluded_items"),
-            ("refund_cancel_enabled", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '退款订单注销开关'", "ai_reply_block_ordered_users"),
-            ("refund_cancel_url", "VARCHAR(255) DEFAULT NULL COMMENT '退款订单注销请求URL'", "refund_cancel_enabled"),
-            ("refund_cancel_timeout", "INT DEFAULT 60 COMMENT '退款订单注销超时时间(秒)'", "refund_cancel_url"),
+            (
+                "message_expire_time",
+                "INT DEFAULT 3600 COMMENT '相同消息等待时间(秒)'",
+                "proxy_pass",
+            ),
+            (
+                "reply_delay_seconds",
+                "INT DEFAULT 0 COMMENT '自动回复延迟时间(秒)，0表示立即回复'",
+                "message_expire_time",
+            ),
+            (
+                "disable_reason",
+                "VARCHAR(255) COMMENT '禁用原因'",
+                "message_expire_time",
+            ),
+            (
+                "scheduled_redelivery",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '定时补发货开关'",
+                "disable_reason",
+            ),
+            (
+                "scheduled_rate",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '定时补评价开关'",
+                "scheduled_redelivery",
+            ),
+            (
+                "auto_polish",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '商品自动擦亮开关'",
+                "scheduled_rate",
+            ),
+            (
+                "confirm_before_send",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '发货成功再发卡券开关'",
+                "auto_polish",
+            ),
+            (
+                "send_before_confirm",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '卡券发送成功再确认发货开关'",
+                "confirm_before_send",
+            ),
+            (
+                "auto_red_flower",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '自动求小红花开关'",
+                "send_before_confirm",
+            ),
+            (
+                "delivery_disabled",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '禁止发货开关'",
+                "auto_red_flower",
+            ),
+            (
+                "delivery_disabled_reason",
+                "VARCHAR(500) DEFAULT NULL COMMENT '禁止发货原因'",
+                "delivery_disabled",
+            ),
+            (
+                "auto_close_order",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '主动关闭订单开关'",
+                "delivery_disabled_reason",
+            ),
+            (
+                "delivery_only_card_after_close",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '关闭订单后继续发货（只发卡券）'",
+                "auto_close_order",
+            ),
+            (
+                "delivery_disabled_excluded_items",
+                "JSON DEFAULT NULL COMMENT '禁止发货排除商品列表（item_id 数组，命中后按正常流程发货）'",
+                "delivery_only_card_after_close",
+            ),
+            (
+                "ai_reply_block_ordered_users",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '已下单用户禁止AI回复'",
+                "delivery_disabled_excluded_items",
+            ),
+            (
+                "refund_cancel_enabled",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '退款订单注销开关'",
+                "ai_reply_block_ordered_users",
+            ),
+            (
+                "refund_cancel_url",
+                "VARCHAR(255) DEFAULT NULL COMMENT '退款订单注销请求URL'",
+                "refund_cancel_enabled",
+            ),
+            (
+                "refund_cancel_timeout",
+                "INT DEFAULT 60 COMMENT '退款订单注销超时时间(秒)'",
+                "refund_cancel_url",
+            ),
         ],
         "xy_orders": [
             ("is_bargain", "TINYINT(1) DEFAULT 0 COMMENT '是否小刀'", "account_name"),
             ("chat_id", "VARCHAR(64) COMMENT '聊天会话ID'", "buyer_id"),
-            ("buyer_fish_nick", "VARCHAR(120) COMMENT '买家闲鱼昵称（明文）'", "buyer_nick"),
+            (
+                "buyer_fish_nick",
+                "VARCHAR(120) COMMENT '买家闲鱼昵称（明文）'",
+                "buyer_nick",
+            ),
             ("receiver_name", "VARCHAR(120) COMMENT '收货人姓名'", "is_bargain"),
             ("receiver_phone", "VARCHAR(32) COMMENT '收货人手机号'", "receiver_name"),
             ("receiver_address", "VARCHAR(512) COMMENT '收货地址'", "receiver_phone"),
-            ("is_rated", "TINYINT(1) DEFAULT 0 COMMENT '是否已评价'", "receiver_address"),
+            (
+                "is_rated",
+                "TINYINT(1) DEFAULT 0 COMMENT '是否已评价'",
+                "receiver_address",
+            ),
             ("delivery_method", "VARCHAR(32) COMMENT '发货方式'", "is_rated"),
             ("delivery_content", "VARCHAR(2000) COMMENT '发货内容'", "delivery_method"),
-            ("delivery_fail_reason", "VARCHAR(2000) COMMENT '发货失败原因'", "delivery_content"),
-            ("source", "VARCHAR(32) COMMENT '数据来源：fetch_xianyu-获取闲鱼订单按钮'", "metadata"),
-            ("is_red_flower", "TINYINT(1) DEFAULT 0 COMMENT '是否已求小红花'", "is_rated"),
-            ("is_unregistered", "TINYINT(1) DEFAULT 0 COMMENT '是否已请求注销接口'", "is_red_flower"),
-            ("unregister_error_reason", "VARCHAR(500) DEFAULT NULL COMMENT '注销接口错误原因'", "is_unregistered"),
+            (
+                "delivery_fail_reason",
+                "VARCHAR(2000) COMMENT '发货失败原因'",
+                "delivery_content",
+            ),
+            (
+                "source",
+                "VARCHAR(32) COMMENT '数据来源：fetch_xianyu-获取闲鱼订单按钮'",
+                "metadata",
+            ),
+            (
+                "is_red_flower",
+                "TINYINT(1) DEFAULT 0 COMMENT '是否已求小红花'",
+                "is_rated",
+            ),
+            (
+                "is_unregistered",
+                "TINYINT(1) DEFAULT 0 COMMENT '是否已请求注销接口'",
+                "is_red_flower",
+            ),
+            (
+                "unregister_error_reason",
+                "VARCHAR(500) DEFAULT NULL COMMENT '注销接口错误原因'",
+                "is_unregistered",
+            ),
         ],
         "xy_cards": [
             ("delivery_count", "INT DEFAULT 0 COMMENT '发货次数'", "delay_seconds"),
             ("price", "VARCHAR(32) COMMENT '对接价格'", "delivery_count"),
             ("is_dockable", "TINYINT(1) DEFAULT 0 COMMENT '是否可对接'", "price"),
-            ("image_urls", "TEXT COMMENT '多图片URL列表(JSON数组，最多3张)'", "image_url"),
-            ("fee_payer", "VARCHAR(32) COMMENT '手续费支付方式：distributor-分销主支付，dealer-分销商支付'", "is_dockable"),
+            (
+                "image_urls",
+                "TEXT COMMENT '多图片URL列表(JSON数组，最多3张)'",
+                "image_url",
+            ),
+            (
+                "fee_payer",
+                "VARCHAR(32) COMMENT '手续费支付方式：distributor-分销主支付，dealer-分销商支付'",
+                "is_dockable",
+            ),
             ("min_price", "VARCHAR(32) COMMENT '最低售价'", "fee_payer"),
-            ("dock_visibility", "VARCHAR(32) DEFAULT NULL COMMENT '对接可见性：public-所有人可见，dealer_only-仅分销商可见'", "min_price"),
+            (
+                "dock_visibility",
+                "VARCHAR(32) DEFAULT NULL COMMENT '对接可见性：public-所有人可见，dealer_only-仅分销商可见'",
+                "min_price",
+            ),
         ],
         "xy_dock_records": [
             ("delivery_count", "INT NOT NULL DEFAULT 0 COMMENT '发货次数'", "remark"),
-            ("disable_reason", "VARCHAR(255) DEFAULT NULL COMMENT '禁用原因'", "status"),
-            ("owner_disabled", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否被上级禁用锁定：1是 0否'", "disable_reason"),
-            ("level", "INT NOT NULL DEFAULT 1 COMMENT '分销层级：1=一级分销，2=二级分销'", "disable_reason"),
-            ("parent_dock_id", "BIGINT DEFAULT NULL COMMENT '上级对接记录ID，一级分销为NULL'", "level"),
-            ("source_user_id", "BIGINT DEFAULT NULL COMMENT '上级分销商用户ID，一级分销为NULL'", "parent_dock_id"),
-            ("allow_sub_dock", "TINYINT(1) DEFAULT 0 COMMENT '是否允许下级对接'", "source_user_id"),
-            ("sub_dock_price", "VARCHAR(32) DEFAULT NULL COMMENT '给下级的对接价格（一级分销商设定）'", "allow_sub_dock"),
-            ("sub_dock_visibility", "VARCHAR(32) DEFAULT NULL COMMENT '下级对接可见性：public-所有人可见，dealer_only-仅绑定对接码的分销商可见'", "sub_dock_price"),
+            (
+                "disable_reason",
+                "VARCHAR(255) DEFAULT NULL COMMENT '禁用原因'",
+                "status",
+            ),
+            (
+                "owner_disabled",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否被上级禁用锁定：1是 0否'",
+                "disable_reason",
+            ),
+            (
+                "level",
+                "INT NOT NULL DEFAULT 1 COMMENT '分销层级：1=一级分销，2=二级分销'",
+                "disable_reason",
+            ),
+            (
+                "parent_dock_id",
+                "BIGINT DEFAULT NULL COMMENT '上级对接记录ID，一级分销为NULL'",
+                "level",
+            ),
+            (
+                "source_user_id",
+                "BIGINT DEFAULT NULL COMMENT '上级分销商用户ID，一级分销为NULL'",
+                "parent_dock_id",
+            ),
+            (
+                "allow_sub_dock",
+                "TINYINT(1) DEFAULT 0 COMMENT '是否允许下级对接'",
+                "source_user_id",
+            ),
+            (
+                "sub_dock_price",
+                "VARCHAR(32) DEFAULT NULL COMMENT '给下级的对接价格（一级分销商设定）'",
+                "allow_sub_dock",
+            ),
+            (
+                "sub_dock_visibility",
+                "VARCHAR(32) DEFAULT NULL COMMENT '下级对接可见性：public-所有人可见，dealer_only-仅绑定对接码的分销商可见'",
+                "sub_dock_price",
+            ),
         ],
         "xy_users": [
             ("account_limit", "INT DEFAULT NULL COMMENT '可添加账号数量'", "role"),
-            ("login_fail_count", "INT DEFAULT 0 COMMENT '登录失败次数'", "last_login_at"),
-            ("login_locked_until", "DATETIME COMMENT '登录锁定截止时间'", "login_fail_count"),
-            ("dock_code", "VARCHAR(32) DEFAULT NULL UNIQUE COMMENT '对接码，用于分销商识别'", "login_locked_until"),
-            ("secret_key", "VARCHAR(64) DEFAULT NULL UNIQUE COMMENT '分销秘钥，32位随机字符，全局唯一'", "dock_code"),
-            ("expire_at", "DATETIME DEFAULT NULL COMMENT '账号到期日（精确到秒，NULL=永不过期）'", "secret_key"),
+            (
+                "login_fail_count",
+                "INT DEFAULT 0 COMMENT '登录失败次数'",
+                "last_login_at",
+            ),
+            (
+                "login_locked_until",
+                "DATETIME COMMENT '登录锁定截止时间'",
+                "login_fail_count",
+            ),
+            (
+                "dock_code",
+                "VARCHAR(32) DEFAULT NULL UNIQUE COMMENT '对接码，用于分销商识别'",
+                "login_locked_until",
+            ),
+            (
+                "secret_key",
+                "VARCHAR(64) DEFAULT NULL UNIQUE COMMENT '分销秘钥，32位随机字符，全局唯一'",
+                "dock_code",
+            ),
+            (
+                "expire_at",
+                "DATETIME DEFAULT NULL COMMENT '账号到期日（精确到秒，NULL=永不过期）'",
+                "secret_key",
+            ),
         ],
         "xy_default_replies": [
             ("item_id", "VARCHAR(64) DEFAULT NULL COMMENT '商品ID'", "account_id"),
             ("reply_image", "VARCHAR(512) COMMENT '回复图片URL'", "reply_content"),
-            ("reply_type", "VARCHAR(16) DEFAULT 'text' COMMENT '回复类型：text-文本(可附带图片)，api-接口'", "enabled"),
-            ("api_url", "VARCHAR(1024) DEFAULT NULL COMMENT 'API地址(reply_type=api时POST此地址)'", "reply_image"),
+            (
+                "reply_type",
+                "VARCHAR(16) DEFAULT 'text' COMMENT '回复类型：text-文本(可附带图片)，api-接口'",
+                "enabled",
+            ),
+            (
+                "api_url",
+                "VARCHAR(1024) DEFAULT NULL COMMENT 'API地址(reply_type=api时POST此地址)'",
+                "reply_image",
+            ),
             ("api_timeout", "INT DEFAULT 80 COMMENT 'API请求超时时间(秒)'", "api_url"),
         ],
         "xy_default_reply_records": [
@@ -1978,34 +2315,82 @@ class DatabaseInitializer:
             ("updated_at", "DATETIME COMMENT '更新时间'", "created_at"),
         ],
         "xy_announcements": [
-            ("is_deleted", "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除'", "content"),
+            (
+                "is_deleted",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已删除'",
+                "content",
+            ),
         ],
         "xy_card_item_relations": [
-            ("source", "VARCHAR(20) DEFAULT 'own' COMMENT '卡券来源：own-自有，dock_l1-一级对接，dock_l2-二级对接'", "item_id"),
-            ("dock_record_id", "BIGINT DEFAULT NULL COMMENT '对接记录ID（对接卡券时关联）'", "source"),
+            (
+                "source",
+                "VARCHAR(20) DEFAULT 'own' COMMENT '卡券来源：own-自有，dock_l1-一级对接，dock_l2-二级对接'",
+                "item_id",
+            ),
+            (
+                "dock_record_id",
+                "BIGINT DEFAULT NULL COMMENT '对接记录ID（对接卡券时关联）'",
+                "source",
+            ),
         ],
         "xy_agent_orders": [
-            ("card_price", "VARCHAR(32) DEFAULT NULL COMMENT '卡券成本（货主对接价）'", "dock_price"),
-            ("level2_cost", "VARCHAR(32) DEFAULT NULL COMMENT '二级拿货价（一级的sub_dock_price）'", "card_price"),
-            ("fee_payer", "VARCHAR(32) DEFAULT NULL COMMENT '手续费承担方：dealer-分销商，distributor-货主'", "fee_amount"),
-            ("owner_user_id", "BIGINT DEFAULT NULL COMMENT '货主用户ID'", "upstream_dock_record_id"),
+            (
+                "card_price",
+                "VARCHAR(32) DEFAULT NULL COMMENT '卡券成本（货主对接价）'",
+                "dock_price",
+            ),
+            (
+                "level2_cost",
+                "VARCHAR(32) DEFAULT NULL COMMENT '二级拿货价（一级的sub_dock_price）'",
+                "card_price",
+            ),
+            (
+                "fee_payer",
+                "VARCHAR(32) DEFAULT NULL COMMENT '手续费承担方：dealer-分销商，distributor-货主'",
+                "fee_amount",
+            ),
+            (
+                "owner_user_id",
+                "BIGINT DEFAULT NULL COMMENT '货主用户ID'",
+                "upstream_dock_record_id",
+            ),
         ],
         "xy_advertisements": [
             ("months", "INT COMMENT '购买月数'", "ad_type"),
             ("total_amount", "VARCHAR(32) COMMENT '广告总金额'", "months"),
         ],
         "xy_settlement_records": [
-            ("payment_type", "VARCHAR(16) COMMENT '收款方式：alipay-支付宝，wechat-微信'", "alipay_id"),
+            (
+                "payment_type",
+                "VARCHAR(16) COMMENT '收款方式：alipay-支付宝，wechat-微信'",
+                "alipay_id",
+            ),
             ("payment_qrcode", "VARCHAR(512) COMMENT '收款码图片路径'", "payment_type"),
             ("reject_reason", "VARCHAR(512) COMMENT '拒绝原因'", "remark"),
         ],
         "xy_publish_logs": [
-            ("resolved_address_id", "BIGINT DEFAULT NULL COMMENT '本次发布命中的地址池ID'", "error_message"),
-            ("resolved_address_text", "VARCHAR(200) DEFAULT NULL COMMENT '本次发布实际使用的地址搜索词'", "resolved_address_id"),
-            ("address_source", "VARCHAR(20) DEFAULT NULL COMMENT '地址来源：material/account_pool/global_pool'", "resolved_address_text"),
+            (
+                "resolved_address_id",
+                "BIGINT DEFAULT NULL COMMENT '本次发布命中的地址池ID'",
+                "error_message",
+            ),
+            (
+                "resolved_address_text",
+                "VARCHAR(200) DEFAULT NULL COMMENT '本次发布实际使用的地址搜索词'",
+                "resolved_address_id",
+            ),
+            (
+                "address_source",
+                "VARCHAR(20) DEFAULT NULL COMMENT '地址来源：material/account_pool/global_pool'",
+                "resolved_address_text",
+            ),
         ],
         "xy_account_login_logs": [
-            ("updated_cookie_names", "VARCHAR(500) DEFAULT NULL COMMENT '接口续期更新的Cookie字段名（逗号分隔）'", "error_message"),
+            (
+                "updated_cookie_names",
+                "VARCHAR(500) DEFAULT NULL COMMENT '接口续期更新的Cookie字段名（逗号分隔）'",
+                "error_message",
+            ),
         ],
     }
 
@@ -2014,30 +2399,30 @@ class DatabaseInitializer:
         try:
             logger.info("=" * 50)
             logger.info("开始初始化数据库...")
-            
+
             # 使用上下文管理器抑制初始化时的重复警告日志
             with suppress_db_warnings():
                 # 1. 创建所有表
                 await self.create_all_tables()
-                
+
                 # 2. 创建默认管理员用户
                 await self.create_default_admin()
-                
+
                 # 3. 初始化系统设置
                 await self.init_system_settings()
 
                 # 3.1 初始化套餐、价格和 AI 加量包
                 await self.init_billing_catalog()
-                
+
                 # 4. 初始化定时任务配置
                 await self.init_scheduled_tasks()
 
                 # 5. 初始化随机地址默认数据
                 await self.init_publish_addresses()
-                
+
                 # 6. 初始化Redis平台日
                 await self.init_redis_platform_day()
-                
+
                 # 7. 迁移卡券商品关联数据（从 xy_cards.item_id 到关联表）
                 await self.migrate_card_item_relations()
 
@@ -2046,14 +2431,14 @@ class DatabaseInitializer:
 
                 # 9. 为历史用户回填分销秘钥（secret_key 为空的存量用户）
                 await self.backfill_user_secret_keys()
-            
+
             logger.info("数据库初始化完成")
             logger.info("=" * 50)
-            
+
         except Exception as e:
             logger.error(f"数据库初始化失败: {e}")
             raise
-    
+
     # 旧表名 → 新表名 的重命名映射（统一加 xy_ 前缀）
     TABLES_TO_RENAME = {
         "scheduled_redelivery_log": "xy_scheduled_redelivery_log",
@@ -2064,10 +2449,10 @@ class DatabaseInitializer:
     async def create_all_tables(self):
         """创建所有数据表"""
         logger.info("开始创建数据表...")
-        
+
         # 先重命名旧表（如果存在）
         await self.rename_legacy_tables()
-        
+
         async with async_engine.begin() as conn:
             for table_name, ddl in self.TABLES_DDL.items():
                 try:
@@ -2075,21 +2460,24 @@ class DatabaseInitializer:
                     logger.info(f"✓ 表 {table_name} 已就绪")
                 except Exception as e:
                     logger.warning(f"✗ 表 {table_name} 创建失败: {e}")
-        
+
         logger.info(f"数据表创建完成，共 {len(self.TABLES_DDL)} 张表")
-        
+
         # 执行字段迁移
         await self.create_billing_tables()
         await self.migrate_columns()
-        
+
         # 执行索引迁移
         await self.migrate_indexes()
-    
+
     async def create_billing_tables(self):
         tables = (
-            BillingPlan.__table__, BillingPlanPrice.__table__,
-            AIQuotaPackage.__table__, BillingOrder.__table__,
-            UserSubscription.__table__, AIQuotaGrant.__table__,
+            BillingPlan.__table__,
+            BillingPlanPrice.__table__,
+            AIQuotaPackage.__table__,
+            BillingOrder.__table__,
+            UserSubscription.__table__,
+            AIQuotaGrant.__table__,
             EntitlementLedger.__table__,
         )
         async with async_engine.begin() as conn:
@@ -2115,7 +2503,7 @@ class DatabaseInitializer:
                     old_exists = result.scalar() > 0
                     if not old_exists:
                         continue
-                    
+
                     # 检查新表是否已存在
                     check_new_sql = text(f"""
                         SELECT COUNT(*) FROM information_schema.TABLES
@@ -2127,7 +2515,7 @@ class DatabaseInitializer:
                     if new_exists:
                         logger.debug(f"✓ 新表 {new_name} 已存在，跳过重命名")
                         continue
-                    
+
                     # 执行重命名
                     rename_sql = text(f"RENAME TABLE `{old_name}` TO `{new_name}`")
                     await conn.execute(rename_sql)
@@ -2138,7 +2526,7 @@ class DatabaseInitializer:
     async def migrate_columns(self):
         """检查并添加/修改字段"""
         logger.info("检查字段迁移...")
-        
+
         async with async_engine.begin() as conn:
             for table_name, columns in self.COLUMN_MIGRATIONS.items():
                 for col_name, col_def, after_col in columns:
@@ -2152,7 +2540,7 @@ class DatabaseInitializer:
                         """)
                         result = await conn.execute(check_sql)
                         exists = result.scalar() > 0
-                        
+
                         if not exists:
                             # 添加字段
                             try:
@@ -2162,13 +2550,17 @@ class DatabaseInitializer:
                                 await conn.execute(alter_sql)
                             except Exception:
                                 # AFTER 失败则追加到表末尾
-                                alter_sql = text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+                                alter_sql = text(
+                                    f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
+                                )
                                 await conn.execute(alter_sql)
                             logger.info(f"✓ 表 {table_name} 添加字段 {col_name}")
                         else:
                             logger.debug(f"✓ 表 {table_name} 已有字段 {col_name}")
                     except Exception as e:
-                        logger.warning(f"✗ 表 {table_name} 字段 {col_name} 迁移失败: {e}")
+                        logger.warning(
+                            f"✗ 表 {table_name} 字段 {col_name} 迁移失败: {e}"
+                        )
 
             # xy_users: account_limit 字段允许为空且默认值为空
             try:
@@ -2181,13 +2573,17 @@ class DatabaseInitializer:
                 result = await conn.execute(check_account_limit)
                 account_limit_row = result.fetchone()
                 if account_limit_row and (
-                    account_limit_row.IS_NULLABLE != 'YES'
+                    account_limit_row.IS_NULLABLE != "YES"
                     or account_limit_row.COLUMN_DEFAULT is not None
                 ):
-                    await conn.execute(text(
-                        "ALTER TABLE xy_users MODIFY COLUMN account_limit INT DEFAULT NULL COMMENT '可添加账号数量'"
-                    ))
-                    logger.info("✓ xy_users: account_limit 字段已调整为允许为空且默认值为空")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_users MODIFY COLUMN account_limit INT DEFAULT NULL COMMENT '可添加账号数量'"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_users: account_limit 字段已调整为允许为空且默认值为空"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_users account_limit 字段迁移失败: {e}")
 
@@ -2201,10 +2597,12 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check_enum)
                 col_type = result.scalar()
-                if col_type and 'unpaid' not in col_type:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_advertisements MODIFY COLUMN status ENUM('unpaid','pending','approved') DEFAULT 'unpaid' COMMENT '审核状态'"
-                    ))
+                if col_type and "unpaid" not in col_type:
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_advertisements MODIFY COLUMN status ENUM('unpaid','pending','approved') DEFAULT 'unpaid' COMMENT '审核状态'"
+                        )
+                    )
                     logger.info("✓ xy_advertisements: status 枚举已扩展（新增 unpaid）")
             except Exception as e:
                 logger.warning(f"✗ xy_advertisements status 枚举迁移失败: {e}")
@@ -2220,10 +2618,14 @@ class DatabaseInitializer:
                 result = await conn.execute(check_len)
                 max_len = result.scalar()
                 if max_len and max_len < 128:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_token_cache MODIFY COLUMN user_id VARCHAR(128) NOT NULL COMMENT '用户ID（myid）'"
-                    ))
-                    logger.info("✓ xy_token_cache: user_id 字段长度已扩展为 VARCHAR(128)")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_token_cache MODIFY COLUMN user_id VARCHAR(128) NOT NULL COMMENT '用户ID（myid）'"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_token_cache: user_id 字段长度已扩展为 VARCHAR(128)"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_token_cache user_id 字段迁移失败: {e}")
 
@@ -2238,14 +2640,20 @@ class DatabaseInitializer:
                 result = await conn.execute(check_status_len)
                 status_len = result.scalar()
                 if status_len and status_len < 30:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_api_cookie_renew_log MODIFY COLUMN "
-                        "`status` VARCHAR(30) NOT NULL "
-                        "COMMENT '状态：success/cookie_updated/browser_renewed/need_password_login/failed'"
-                    ))
-                    logger.info("✓ xy_scheduled_api_cookie_renew_log: status 字段长度已扩展为 VARCHAR(30)")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_api_cookie_renew_log MODIFY COLUMN "
+                            "`status` VARCHAR(30) NOT NULL "
+                            "COMMENT '状态：success/cookie_updated/browser_renewed/need_password_login/failed'"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_api_cookie_renew_log: status 字段长度已扩展为 VARCHAR(30)"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_api_cookie_renew_log status 字段迁移失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_api_cookie_renew_log status 字段迁移失败: {e}"
+                )
 
             # xy_cards: 将 text_content / data_content 从 TEXT 升级为 LONGTEXT（支持超大卡券内容）
             for card_col in ("text_content", "data_content"):
@@ -2259,10 +2667,12 @@ class DatabaseInitializer:
                     result = await conn.execute(check_card_col, {"col_name": card_col})
                     data_type = result.scalar()
                     # DATA_TYPE 返回小写类型名（如 text/longtext），非 longtext 时升级
-                    if data_type and data_type.lower() != 'longtext':
-                        await conn.execute(text(
-                            f"ALTER TABLE xy_cards MODIFY COLUMN {card_col} LONGTEXT NULL"
-                        ))
+                    if data_type and data_type.lower() != "longtext":
+                        await conn.execute(
+                            text(
+                                f"ALTER TABLE xy_cards MODIFY COLUMN {card_col} LONGTEXT NULL"
+                            )
+                        )
                         logger.info(f"✓ xy_cards: {card_col} 字段已升级为 LONGTEXT")
                 except Exception as e:
                     logger.warning(f"✗ xy_cards {card_col} 字段迁移失败: {e}")
@@ -2270,38 +2680,46 @@ class DatabaseInitializer:
     async def migrate_indexes(self):
         """检查并迁移索引（如更新 UNIQUE KEY 等）"""
         logger.info("检查索引迁移...")
-        
+
         async with async_engine.begin() as conn:
             try:
-                result = await conn.execute(text("""
+                result = await conn.execute(
+                    text("""
                     SELECT COUNT(*) FROM information_schema.STATISTICS
                     WHERE TABLE_SCHEMA = DATABASE()
                     AND TABLE_NAME = 'xy_billing_orders'
                     AND INDEX_NAME = 'uk_billing_order_request'
-                """))
+                """)
+                )
                 if result.scalar() == 0:
-                    await conn.execute(text("""
+                    await conn.execute(
+                        text("""
                         ALTER TABLE xy_billing_orders
                         ADD UNIQUE KEY uk_billing_order_request
                         (user_id, request_key)
-                    """))
+                    """)
+                    )
             except Exception as exc:
-                logger.warning(f'billing order index migration failed: {exc}')
+                logger.warning(f"billing order index migration failed: {exc}")
 
             try:
-                result = await conn.execute(text("""
+                result = await conn.execute(
+                    text("""
                     SELECT COUNT(*) FROM information_schema.STATISTICS
                     WHERE TABLE_SCHEMA = DATABASE()
                     AND TABLE_NAME = 'xy_ai_usage_requests'
                     AND INDEX_NAME = 'idx_ai_usage_grant'
-                """))
+                """)
+                )
                 if result.scalar() == 0:
-                    await conn.execute(text("""
+                    await conn.execute(
+                        text("""
                         ALTER TABLE xy_ai_usage_requests
                         ADD INDEX idx_ai_usage_grant (quota_grant_id)
-                    """))
+                    """)
+                    )
             except Exception as exc:
-                logger.warning(f'AI usage grant index migration failed: {exc}')
+                logger.warning(f"AI usage grant index migration failed: {exc}")
 
             try:
                 # xy_card_item_relations: 将旧的 uk_card_item(card_id, item_id) 替换为 uk_card_item_dock(card_id, item_id, dock_record_id)
@@ -2314,18 +2732,28 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check_old)
                 old_exists = result.scalar() > 0
-                
+
                 if old_exists:
                     # 先修复历史数据：确保 source 字段有值
-                    await conn.execute(text(
-                        "UPDATE xy_card_item_relations SET source = 'own' WHERE source IS NULL"
-                    ))
+                    await conn.execute(
+                        text(
+                            "UPDATE xy_card_item_relations SET source = 'own' WHERE source IS NULL"
+                        )
+                    )
                     # 删除旧索引并创建新索引
-                    await conn.execute(text("ALTER TABLE xy_card_item_relations DROP INDEX uk_card_item"))
-                    await conn.execute(text(
-                        "ALTER TABLE xy_card_item_relations ADD UNIQUE KEY uk_card_item_dock (card_id, item_id, dock_record_id)"
-                    ))
-                    logger.info("✓ xy_card_item_relations: uk_card_item → uk_card_item_dock 迁移完成（历史数据已修复）")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_card_item_relations DROP INDEX uk_card_item"
+                        )
+                    )
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_card_item_relations ADD UNIQUE KEY uk_card_item_dock (card_id, item_id, dock_record_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_card_item_relations: uk_card_item → uk_card_item_dock 迁移完成（历史数据已修复）"
+                    )
                 else:
                     # 检查新索引是否已存在
                     check_new = text("""
@@ -2337,13 +2765,19 @@ class DatabaseInitializer:
                     result = await conn.execute(check_new)
                     new_exists = result.scalar() > 0
                     if new_exists:
-                        logger.debug("✓ xy_card_item_relations: uk_card_item_dock 索引已存在")
+                        logger.debug(
+                            "✓ xy_card_item_relations: uk_card_item_dock 索引已存在"
+                        )
                     else:
                         # 新表没有任何唯一索引，创建新的
-                        await conn.execute(text(
-                            "ALTER TABLE xy_card_item_relations ADD UNIQUE KEY uk_card_item_dock (card_id, item_id, dock_record_id)"
-                        ))
-                        logger.info("✓ xy_card_item_relations: 创建 uk_card_item_dock 索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_card_item_relations ADD UNIQUE KEY uk_card_item_dock (card_id, item_id, dock_record_id)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_card_item_relations: 创建 uk_card_item_dock 索引"
+                        )
             except Exception as e:
                 logger.warning(f"✗ 索引迁移失败: {e}")
 
@@ -2357,9 +2791,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_users ADD INDEX idx_user_created (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_users ADD INDEX idx_user_created (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_users: 创建 idx_user_created 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_users idx_user_created 创建失败: {e}")
@@ -2374,9 +2810,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_accounts ADD INDEX idx_account_created (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_accounts ADD INDEX idx_account_created (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_accounts: 创建 idx_account_created 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_accounts idx_account_created 创建失败: {e}")
@@ -2391,9 +2829,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_keyword_rules ADD INDEX idx_kw_account_item (account_id, item_id)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_keyword_rules ADD INDEX idx_kw_account_item (account_id, item_id)"
+                        )
+                    )
                     logger.info("✓ xy_keyword_rules: 创建 idx_kw_account_item 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_keyword_rules 复合索引创建失败: {e}")
@@ -2408,12 +2848,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_keyword_rules ADD INDEX idx_kw_account_active (account_id, is_active)"
-                    ))
-                    logger.info("✓ xy_keyword_rules: 创建 idx_kw_account_active 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_keyword_rules ADD INDEX idx_kw_account_active (account_id, is_active)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_keyword_rules: 创建 idx_kw_account_active 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_keyword_rules idx_kw_account_active 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_keyword_rules idx_kw_account_active 创建失败: {e}"
+                )
 
             # 为 xy_catalog_items 补建 (account_id, item_id) 复合索引
             try:
@@ -2425,10 +2871,14 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_catalog_items ADD INDEX idx_cat_account_item (account_id, item_id)"
-                    ))
-                    logger.info("✓ xy_catalog_items: 创建 idx_cat_account_item 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_catalog_items ADD INDEX idx_cat_account_item (account_id, item_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_catalog_items: 创建 idx_cat_account_item 复合索引"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_catalog_items 复合索引创建失败: {e}")
 
@@ -2442,9 +2892,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_cards ADD INDEX idx_card_user_item (user_id, item_id)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_cards ADD INDEX idx_card_user_item (user_id, item_id)"
+                        )
+                    )
                     logger.info("✓ xy_cards: 创建 idx_card_user_item 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_cards 复合索引创建失败: {e}")
@@ -2459,9 +2911,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_dock_records ADD INDEX idx_parent_dock_id (parent_dock_id)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_dock_records ADD INDEX idx_parent_dock_id (parent_dock_id)"
+                        )
+                    )
                     logger.info("✓ xy_dock_records: 创建 idx_parent_dock_id 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_dock_records idx_parent_dock_id 创建失败: {e}")
@@ -2475,9 +2929,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_dock_records ADD INDEX idx_dock_user_level (user_id, level)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_dock_records ADD INDEX idx_dock_user_level (user_id, level)"
+                        )
+                    )
                     logger.info("✓ xy_dock_records: 创建 idx_dock_user_level 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_dock_records idx_dock_user_level 创建失败: {e}")
@@ -2492,12 +2948,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_catalog_items ADD INDEX idx_cat_owner_created (owner_id, created_at)"
-                    ))
-                    logger.info("✓ xy_catalog_items: 创建 idx_cat_owner_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_catalog_items ADD INDEX idx_cat_owner_created (owner_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_catalog_items: 创建 idx_cat_owner_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_catalog_items idx_cat_owner_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_catalog_items idx_cat_owner_created 创建失败: {e}"
+                )
 
             # 为 xy_catalog_items 补建 (account_id, item_id) 唯一约束 —— 防止「定时获取闲鱼商品任务」
             # 与「商品管理页手动触发同步」两个流程并发 upsert 时重复插入同一商品（兜底）。
@@ -2530,10 +2992,14 @@ class DatabaseInitializer:
                             f"请人工合并重复商品后，重启服务自动补建（当前由 Redis 账号锁兜底防并发）"
                         )
                     else:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_catalog_items ADD UNIQUE KEY uk_cat_account_item (account_id, item_id)"
-                        ))
-                        logger.info("✓ xy_catalog_items: 创建 uk_cat_account_item 唯一约束")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_catalog_items ADD UNIQUE KEY uk_cat_account_item (account_id, item_id)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_catalog_items: 创建 uk_cat_account_item 唯一约束"
+                        )
             except Exception as e:
                 logger.warning(f"✗ xy_catalog_items uk_cat_account_item 创建失败: {e}")
 
@@ -2547,12 +3013,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_card_item_relations ADD INDEX idx_cir_user_item (user_id, item_id)"
-                    ))
-                    logger.info("✓ xy_card_item_relations: 创建 idx_cir_user_item 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_card_item_relations ADD INDEX idx_cir_user_item (user_id, item_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_card_item_relations: 创建 idx_cir_user_item 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_card_item_relations idx_cir_user_item 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_card_item_relations idx_cir_user_item 创建失败: {e}"
+                )
 
             # 为 xy_card_item_relations 补建 (item_id, card_id) 复合索引 —— 加速关联卡券弹窗 JOIN 查询
             try:
@@ -2564,12 +3036,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_card_item_relations ADD INDEX idx_cir_item_card (item_id, card_id)"
-                    ))
-                    logger.info("✓ xy_card_item_relations: 创建 idx_cir_item_card 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_card_item_relations ADD INDEX idx_cir_item_card (item_id, card_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_card_item_relations: 创建 idx_cir_item_card 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_card_item_relations idx_cir_item_card 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_card_item_relations idx_cir_item_card 创建失败: {e}"
+                )
 
             # 为 xy_cards 补建 (user_id, id) 复合索引 —— 加速按用户分页查询（ORDER BY id DESC）
             try:
@@ -2581,9 +3059,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_cards ADD INDEX idx_cards_user_id_desc (user_id, id)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_cards ADD INDEX idx_cards_user_id_desc (user_id, id)"
+                        )
+                    )
                     logger.info("✓ xy_cards: 创建 idx_cards_user_id_desc 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_cards idx_cards_user_id_desc 创建失败: {e}")
@@ -2598,9 +3078,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_cards ADD INDEX idx_cards_user_enabled (user_id, enabled)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_cards ADD INDEX idx_cards_user_enabled (user_id, enabled)"
+                        )
+                    )
                     logger.info("✓ xy_cards: 创建 idx_cards_user_enabled 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_cards idx_cards_user_enabled 创建失败: {e}")
@@ -2615,10 +3097,14 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_agent_orders ADD INDEX idx_ao_upstream_status (upstream_user_id, status)"
-                    ))
-                    logger.info("✓ xy_agent_orders: 创建 idx_ao_upstream_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_agent_orders ADD INDEX idx_ao_upstream_status (upstream_user_id, status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_agent_orders: 创建 idx_ao_upstream_status 复合索引"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_agent_orders 复合索引创建失败: {e}")
 
@@ -2632,10 +3118,14 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_account_status (account_id, processing_status)"
-                    ))
-                    logger.info("✓ xy_risk_control_logs: 创建 idx_rcl_account_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_account_status (account_id, processing_status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_risk_control_logs: 创建 idx_rcl_account_status 复合索引"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_risk_control_logs 复合索引创建失败: {e}")
 
@@ -2649,12 +3139,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_identifier_status_created (account_identifier, processing_status, created_at)"
-                    ))
-                    logger.info("✓ xy_risk_control_logs: 创建 idx_rcl_identifier_status_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_identifier_status_created (account_identifier, processing_status, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_risk_control_logs: 创建 idx_rcl_identifier_status_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_risk_control_logs idx_rcl_identifier_status_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_risk_control_logs idx_rcl_identifier_status_created 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_redelivery_log 补建 (created_at, batch_id) 复合索引
             try:
@@ -2666,12 +3162,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_redelivery_log ADD INDEX idx_srl_created_batch (created_at, batch_id)"
-                    ))
-                    logger.info("✓ xy_scheduled_redelivery_log: 创建 idx_srl_created_batch 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_redelivery_log ADD INDEX idx_srl_created_batch (created_at, batch_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_redelivery_log: 创建 idx_srl_created_batch 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_redelivery_log idx_srl_created_batch 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_redelivery_log idx_srl_created_batch 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_redelivery_log 补建 (batch_id, created_at, status) 复合索引
             try:
@@ -2683,12 +3185,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_redelivery_log ADD INDEX idx_srl_batch_created_status (batch_id, created_at, status)"
-                    ))
-                    logger.info("✓ xy_scheduled_redelivery_log: 创建 idx_srl_batch_created_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_redelivery_log ADD INDEX idx_srl_batch_created_status (batch_id, created_at, status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_redelivery_log: 创建 idx_srl_batch_created_status 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_redelivery_log idx_srl_batch_created_status 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_redelivery_log idx_srl_batch_created_status 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_rate_log 补建 (created_at, batch_id) 复合索引
             try:
@@ -2700,12 +3208,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_rate_log ADD INDEX idx_srate_created_batch (created_at, batch_id)"
-                    ))
-                    logger.info("✓ xy_scheduled_rate_log: 创建 idx_srate_created_batch 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_rate_log ADD INDEX idx_srate_created_batch (created_at, batch_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_rate_log: 创建 idx_srate_created_batch 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_rate_log idx_srate_created_batch 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_rate_log idx_srate_created_batch 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_rate_log 补建 (batch_id, created_at, status) 复合索引
             try:
@@ -2717,12 +3231,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_rate_log ADD INDEX idx_srate_batch_created_status (batch_id, created_at, status)"
-                    ))
-                    logger.info("✓ xy_scheduled_rate_log: 创建 idx_srate_batch_created_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_rate_log ADD INDEX idx_srate_batch_created_status (batch_id, created_at, status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_rate_log: 创建 idx_srate_batch_created_status 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_rate_log idx_srate_batch_created_status 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_rate_log idx_srate_batch_created_status 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_polish_log 补建 (created_at, batch_id) 复合索引
             try:
@@ -2734,12 +3254,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_polish_log ADD INDEX idx_spol_created_batch (created_at, batch_id)"
-                    ))
-                    logger.info("✓ xy_scheduled_polish_log: 创建 idx_spol_created_batch 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_polish_log ADD INDEX idx_spol_created_batch (created_at, batch_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_polish_log: 创建 idx_spol_created_batch 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_polish_log idx_spol_created_batch 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_polish_log idx_spol_created_batch 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_polish_log 补建 (batch_id, created_at, status) 复合索引
             try:
@@ -2751,12 +3277,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_polish_log ADD INDEX idx_spol_batch_created_status (batch_id, created_at, status)"
-                    ))
-                    logger.info("✓ xy_scheduled_polish_log: 创建 idx_spol_batch_created_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_polish_log ADD INDEX idx_spol_batch_created_status (batch_id, created_at, status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_polish_log: 创建 idx_spol_batch_created_status 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_polish_log idx_spol_batch_created_status 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_polish_log idx_spol_batch_created_status 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_red_flower_log 补建 (created_at, batch_id) 复合索引
             try:
@@ -2768,12 +3300,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_red_flower_log ADD INDEX idx_srf_created_batch (created_at, batch_id)"
-                    ))
-                    logger.info("✓ xy_scheduled_red_flower_log: 创建 idx_srf_created_batch 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_red_flower_log ADD INDEX idx_srf_created_batch (created_at, batch_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_red_flower_log: 创建 idx_srf_created_batch 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_red_flower_log idx_srf_created_batch 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_red_flower_log idx_srf_created_batch 创建失败: {e}"
+                )
 
             # 为 xy_scheduled_red_flower_log 补建 (batch_id, created_at, status) 复合索引
             try:
@@ -2785,12 +3323,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_scheduled_red_flower_log ADD INDEX idx_srf_batch_created_status (batch_id, created_at, status)"
-                    ))
-                    logger.info("✓ xy_scheduled_red_flower_log: 创建 idx_srf_batch_created_status 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_scheduled_red_flower_log ADD INDEX idx_srf_batch_created_status (batch_id, created_at, status)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_scheduled_red_flower_log: 创建 idx_srf_batch_created_status 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_scheduled_red_flower_log idx_srf_batch_created_status 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_scheduled_red_flower_log idx_srf_batch_created_status 创建失败: {e}"
+                )
 
             # 为 xy_fund_flows 补建 (user_id, id) 复合索引
             try:
@@ -2802,9 +3346,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_fund_flows ADD INDEX idx_ff_user_id_desc (user_id, id)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_fund_flows ADD INDEX idx_ff_user_id_desc (user_id, id)"
+                        )
+                    )
                     logger.info("✓ xy_fund_flows: 创建 idx_ff_user_id_desc 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_fund_flows idx_ff_user_id_desc 创建失败: {e}")
@@ -2819,12 +3365,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_fund_flows ADD INDEX idx_ff_user_type_id_desc (user_id, type, id)"
-                    ))
-                    logger.info("✓ xy_fund_flows: 创建 idx_ff_user_type_id_desc 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_fund_flows ADD INDEX idx_ff_user_type_id_desc (user_id, type, id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_fund_flows: 创建 idx_ff_user_type_id_desc 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_fund_flows idx_ff_user_type_id_desc 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_fund_flows idx_ff_user_type_id_desc 创建失败: {e}"
+                )
 
             # 为 xy_settlement_records 补建 (user_id, created_at, id) 复合索引
             try:
@@ -2836,12 +3388,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_settlement_records ADD INDEX idx_sr_user_created_id (user_id, created_at, id)"
-                    ))
-                    logger.info("✓ xy_settlement_records: 创建 idx_sr_user_created_id 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_settlement_records ADD INDEX idx_sr_user_created_id (user_id, created_at, id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_settlement_records: 创建 idx_sr_user_created_id 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_settlement_records idx_sr_user_created_id 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_settlement_records idx_sr_user_created_id 创建失败: {e}"
+                )
 
             # 为 xy_orders 补建 (owner_id, account_id, placed_at) 复合索引
             try:
@@ -2853,12 +3411,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_owner_account_placed (owner_id, account_id, placed_at)"
-                    ))
-                    logger.info("✓ xy_orders: 创建 idx_order_owner_account_placed 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_owner_account_placed (owner_id, account_id, placed_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_orders: 创建 idx_order_owner_account_placed 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_orders idx_order_owner_account_placed 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_orders idx_order_owner_account_placed 创建失败: {e}"
+                )
 
             # 为 xy_orders 补建 (owner_id, placed_at) 复合索引
             try:
@@ -2870,9 +3434,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_owner_placed (owner_id, placed_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_owner_placed (owner_id, placed_at)"
+                        )
+                    )
                     logger.info("✓ xy_orders: 创建 idx_order_owner_placed 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_orders idx_order_owner_placed 创建失败: {e}")
@@ -2887,12 +3453,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_owner_account_buyer_created (owner_id, account_id, buyer_id, created_at)"
-                    ))
-                    logger.info("✓ xy_orders: 创建 idx_order_owner_account_buyer_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_owner_account_buyer_created (owner_id, account_id, buyer_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_orders: 创建 idx_order_owner_account_buyer_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_orders idx_order_owner_account_buyer_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_orders idx_order_owner_account_buyer_created 创建失败: {e}"
+                )
 
             # 为 xy_orders 补建 created_at 索引
             try:
@@ -2904,9 +3476,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_created_at (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_created_at (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_orders: 创建 idx_order_created_at 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_orders idx_order_created_at 创建失败: {e}")
@@ -2921,9 +3495,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_placed_status (placed_at, status)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_placed_status (placed_at, status)"
+                        )
+                    )
                     logger.info("✓ xy_orders: 创建 idx_order_placed_status 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_orders idx_order_placed_status 创建失败: {e}")
@@ -2938,9 +3514,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_created_status (created_at, status)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_created_status (created_at, status)"
+                        )
+                    )
                     logger.info("✓ xy_orders: 创建 idx_order_created_status 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_orders idx_order_created_status 创建失败: {e}")
@@ -2955,9 +3533,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_orders ADD INDEX idx_order_owner_created (owner_id, created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_orders ADD INDEX idx_order_owner_created (owner_id, created_at)"
+                        )
+                    )
                     logger.info("✓ xy_orders: 创建 idx_order_owner_created 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_orders idx_order_owner_created 创建失败: {e}")
@@ -2972,12 +3552,16 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_agent_orders ADD INDEX idx_agent_order_created (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_agent_orders ADD INDEX idx_agent_order_created (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_agent_orders: 创建 idx_agent_order_created 索引")
             except Exception as e:
-                logger.warning(f"✗ xy_agent_orders idx_agent_order_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_agent_orders idx_agent_order_created 创建失败: {e}"
+                )
 
             # 为 xy_product_materials 补建 (user_id, created_at) 复合索引
             try:
@@ -2989,12 +3573,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_product_materials ADD INDEX idx_pm_user_created (user_id, created_at)"
-                    ))
-                    logger.info("✓ xy_product_materials: 创建 idx_pm_user_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_product_materials ADD INDEX idx_pm_user_created (user_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_product_materials: 创建 idx_pm_user_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_product_materials idx_pm_user_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_product_materials idx_pm_user_created 创建失败: {e}"
+                )
 
             # 为 xy_publish_logs 补建 (user_id, created_at) 复合索引
             try:
@@ -3006,12 +3596,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_publish_logs ADD INDEX idx_publish_user_created (user_id, created_at)"
-                    ))
-                    logger.info("✓ xy_publish_logs: 创建 idx_publish_user_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_publish_logs ADD INDEX idx_publish_user_created (user_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_publish_logs: 创建 idx_publish_user_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_publish_logs idx_publish_user_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_publish_logs idx_publish_user_created 创建失败: {e}"
+                )
 
             auto_reply_log_table_exists = False
             try:
@@ -3035,12 +3631,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_account_status_created (account_id, process_status, created_at)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_account_status_created 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_account_status_created (account_id, process_status, created_at)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_account_status_created 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_account_status_created 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_account_status_created 创建失败: {e}"
+                    )
 
                 try:
                     check = text("""
@@ -3051,12 +3653,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_owner_status_created (owner_id, process_status, created_at)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_owner_status_created 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_owner_status_created (owner_id, process_status, created_at)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_owner_status_created 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_owner_status_created 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_owner_status_created 创建失败: {e}"
+                    )
 
                 try:
                     check = text("""
@@ -3067,12 +3675,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_status_strategy_created (process_status, reply_strategy, created_at)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_status_strategy_created 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_status_strategy_created (process_status, reply_strategy, created_at)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_status_strategy_created 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_status_strategy_created 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_status_strategy_created 创建失败: {e}"
+                    )
 
                 try:
                     check = text("""
@@ -3083,12 +3697,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_status_created (process_status, created_at)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_status_created 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_status_created (process_status, created_at)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_status_created 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_status_created 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_status_created 创建失败: {e}"
+                    )
 
                 try:
                     check = text("""
@@ -3099,12 +3719,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_order_no (order_no)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_order_no 索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_order_no (order_no)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_order_no 索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_order_no 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_order_no 创建失败: {e}"
+                    )
 
                 # 补建 (order_no, reply_strategy, id) 复合索引 —— 加速「按订单号+回复策略取最新一条日志」的查询
                 # （订单列表关联自动发货发送状态：WHERE reply_strategy='auto_delivery' AND order_no IN (...) GROUP BY order_no, MAX(id)）
@@ -3117,12 +3743,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_order_strategy_id (order_no, reply_strategy, id)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_order_strategy_id 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_order_strategy_id (order_no, reply_strategy, id)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_order_strategy_id 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_order_strategy_id 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_order_strategy_id 创建失败: {e}"
+                    )
 
                 # 补建 (reply_strategy, order_no, id) 复合索引 —— 加速订单列表「发送状态」筛选
                 # （子查询 WHERE reply_strategy='auto_delivery' GROUP BY order_no, MAX(id)，无 order_no 限定；
@@ -3136,12 +3768,18 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check)
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_strategy_order_id (reply_strategy, order_no, id)"
-                        ))
-                        logger.info("✓ xy_auto_reply_message_logs: 创建 idx_arml_strategy_order_id 复合索引")
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_auto_reply_message_logs ADD INDEX idx_arml_strategy_order_id (reply_strategy, order_no, id)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_auto_reply_message_logs: 创建 idx_arml_strategy_order_id 复合索引"
+                        )
                 except Exception as e:
-                    logger.warning(f"✗ xy_auto_reply_message_logs idx_arml_strategy_order_id 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_auto_reply_message_logs idx_arml_strategy_order_id 创建失败: {e}"
+                    )
 
             # 为 xy_dock_records 补建 (source_user_id, level) 复合索引 —— 加速二级分销商列表查询
             try:
@@ -3153,10 +3791,14 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_dock_records ADD INDEX idx_dock_source_level (source_user_id, level)"
-                    ))
-                    logger.info("✓ xy_dock_records: 创建 idx_dock_source_level 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_dock_records ADD INDEX idx_dock_source_level (source_user_id, level)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_dock_records: 创建 idx_dock_source_level 复合索引"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_dock_records idx_dock_source_level 创建失败: {e}")
 
@@ -3170,9 +3812,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_cards ADD INDEX idx_cards_dockable_enabled (is_dockable, enabled)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_cards ADD INDEX idx_cards_dockable_enabled (is_dockable, enabled)"
+                        )
+                    )
                     logger.info("✓ xy_cards: 创建 idx_cards_dockable_enabled 复合索引")
             except Exception as e:
                 logger.warning(f"✗ xy_cards idx_cards_dockable_enabled 创建失败: {e}")
@@ -3187,12 +3831,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_personal_blacklist ADD INDEX idx_pb_owner_created (owner_id, created_at)"
-                    ))
-                    logger.info("✓ xy_personal_blacklist: 创建 idx_pb_owner_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_personal_blacklist ADD INDEX idx_pb_owner_created (owner_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_personal_blacklist: 创建 idx_pb_owner_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_personal_blacklist idx_pb_owner_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_personal_blacklist idx_pb_owner_created 创建失败: {e}"
+                )
 
             # 为 xy_platform_blacklist 补建 created_at 索引 —— 加速闲鱼黑名单列表分页排序
             try:
@@ -3204,9 +3854,11 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_platform_blacklist ADD INDEX idx_plb_created (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_platform_blacklist ADD INDEX idx_plb_created (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_platform_blacklist: 创建 idx_plb_created 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_platform_blacklist idx_plb_created 创建失败: {e}")
@@ -3221,12 +3873,16 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_listing_monitor_items ADD INDEX idx_lmi_created (created_at)"
-                    ))
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_listing_monitor_items ADD INDEX idx_lmi_created (created_at)"
+                        )
+                    )
                     logger.info("✓ xy_listing_monitor_items: 创建 idx_lmi_created 索引")
             except Exception as e:
-                logger.warning(f"✗ xy_listing_monitor_items idx_lmi_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_listing_monitor_items idx_lmi_created 创建失败: {e}"
+                )
 
             # 为 xy_listing_monitor_items 补建查询索引 —— 原仅有 task/owner/publish_time/created_at 索引，
             # 未覆盖调度任务/去重/列表的高频过滤字段，表数据增大后会全表扫描导致查询很慢
@@ -3250,12 +3906,16 @@ class DatabaseInitializer:
                     """)
                     result = await conn.execute(check, {"idx_name": idx_name})
                     if result.scalar() == 0:
-                        await conn.execute(text(
-                            f"ALTER TABLE xy_listing_monitor_items ADD INDEX {idx_name} {idx_cols}"
-                        ))
+                        await conn.execute(
+                            text(
+                                f"ALTER TABLE xy_listing_monitor_items ADD INDEX {idx_name} {idx_cols}"
+                            )
+                        )
                         logger.info(f"✓ xy_listing_monitor_items: 创建 {idx_name} 索引")
                 except Exception as e:
-                    logger.warning(f"✗ xy_listing_monitor_items {idx_name} 创建失败: {e}")
+                    logger.warning(
+                        f"✗ xy_listing_monitor_items {idx_name} 创建失败: {e}"
+                    )
 
             # 为 xy_listing_monitor_tasks 补建 category_id 索引 —— 加速按分类筛选任务
             try:
@@ -3267,12 +3927,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_listing_monitor_tasks ADD INDEX idx_lmt_category (category_id)"
-                    ))
-                    logger.info("✓ xy_listing_monitor_tasks: 创建 idx_lmt_category 索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_listing_monitor_tasks ADD INDEX idx_lmt_category (category_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_listing_monitor_tasks: 创建 idx_lmt_category 索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_listing_monitor_tasks idx_lmt_category 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_listing_monitor_tasks idx_lmt_category 创建失败: {e}"
+                )
 
             # 为 xy_risk_control_logs 补建 (owner_id, created_at) 复合索引 —— 加速按用户筛选+时间倒序分页
             try:
@@ -3284,12 +3950,18 @@ class DatabaseInitializer:
                 """)
                 result = await conn.execute(check)
                 if result.scalar() == 0:
-                    await conn.execute(text(
-                        "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_owner_created (owner_id, created_at)"
-                    ))
-                    logger.info("✓ xy_risk_control_logs: 创建 idx_rcl_owner_created 复合索引")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_risk_control_logs ADD INDEX idx_rcl_owner_created (owner_id, created_at)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_risk_control_logs: 创建 idx_rcl_owner_created 复合索引"
+                    )
             except Exception as e:
-                logger.warning(f"✗ xy_risk_control_logs idx_rcl_owner_created 创建失败: {e}")
+                logger.warning(
+                    f"✗ xy_risk_control_logs idx_rcl_owner_created 创建失败: {e}"
+                )
 
             # 迁移兜底账号表唯一键：从 (owner_id) 改为 (owner_id, category_id)
             # xy_order_fallback_accounts
@@ -3303,10 +3975,14 @@ class DatabaseInitializer:
                 result = await conn.execute(check_old)
                 if result.scalar() > 0:
                     # 删除旧唯一键
-                    await conn.execute(text(
-                        "ALTER TABLE xy_order_fallback_accounts DROP INDEX uk_ofa_owner"
-                    ))
-                    logger.info("✓ xy_order_fallback_accounts: 删除旧唯一键 uk_ofa_owner")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_order_fallback_accounts DROP INDEX uk_ofa_owner"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_order_fallback_accounts: 删除旧唯一键 uk_ofa_owner"
+                    )
 
                 # 检查新唯一键是否存在
                 check_new = text("""
@@ -3318,10 +3994,14 @@ class DatabaseInitializer:
                 result = await conn.execute(check_new)
                 if result.scalar() == 0:
                     # 添加新唯一键
-                    await conn.execute(text(
-                        "ALTER TABLE xy_order_fallback_accounts ADD UNIQUE KEY uk_ofa_owner_category (owner_id, category_id)"
-                    ))
-                    logger.info("✓ xy_order_fallback_accounts: 创建新唯一键 uk_ofa_owner_category")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_order_fallback_accounts ADD UNIQUE KEY uk_ofa_owner_category (owner_id, category_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_order_fallback_accounts: 创建新唯一键 uk_ofa_owner_category"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_order_fallback_accounts 唯一键迁移失败: {e}")
 
@@ -3336,10 +4016,14 @@ class DatabaseInitializer:
                 result = await conn.execute(check_old)
                 if result.scalar() > 0:
                     # 删除旧唯一键
-                    await conn.execute(text(
-                        "ALTER TABLE xy_collect_fallback_accounts DROP INDEX uk_cfa_owner"
-                    ))
-                    logger.info("✓ xy_collect_fallback_accounts: 删除旧唯一键 uk_cfa_owner")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_collect_fallback_accounts DROP INDEX uk_cfa_owner"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_collect_fallback_accounts: 删除旧唯一键 uk_cfa_owner"
+                    )
 
                 # 检查新唯一键是否存在
                 check_new = text("""
@@ -3351,10 +4035,14 @@ class DatabaseInitializer:
                 result = await conn.execute(check_new)
                 if result.scalar() == 0:
                     # 添加新唯一键
-                    await conn.execute(text(
-                        "ALTER TABLE xy_collect_fallback_accounts ADD UNIQUE KEY uk_cfa_owner_category (owner_id, category_id)"
-                    ))
-                    logger.info("✓ xy_collect_fallback_accounts: 创建新唯一键 uk_cfa_owner_category")
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_collect_fallback_accounts ADD UNIQUE KEY uk_cfa_owner_category (owner_id, category_id)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_collect_fallback_accounts: 创建新唯一键 uk_cfa_owner_category"
+                    )
             except Exception as e:
                 logger.warning(f"✗ xy_collect_fallback_accounts 唯一键迁移失败: {e}")
 
@@ -3389,9 +4077,11 @@ class DatabaseInitializer:
                             f"请人工合并重复订单后，重启服务自动补建（当前由 Redis 账号锁兜底防并发）"
                         )
                     else:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_orders ADD UNIQUE KEY uk_order_account_no (account_id, order_no)"
-                        ))
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_orders ADD UNIQUE KEY uk_order_account_no (account_id, order_no)"
+                            )
+                        )
                         logger.info("✓ xy_orders: 创建 uk_order_account_no 唯一约束")
             except Exception as e:
                 logger.warning(f"✗ xy_orders uk_order_account_no 创建失败: {e}")
@@ -3428,42 +4118,73 @@ class DatabaseInitializer:
                             f"请人工合并/处理重复账号后，重启服务自动补建"
                         )
                     else:
-                        await conn.execute(text(
-                            "ALTER TABLE xy_accounts ADD UNIQUE KEY uk_account_id (account_id)"
-                        ))
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_accounts ADD UNIQUE KEY uk_account_id (account_id)"
+                            )
+                        )
                         logger.info("✓ xy_accounts: 创建 uk_account_id 全局唯一约束")
             except Exception as e:
                 logger.warning(f"✗ xy_accounts uk_account_id 创建失败: {e}")
-
 
     async def create_default_admin(self):
         """Create the first administrator only from explicit secure environment values."""
         logger.info("Checking whether an initial administrator must be created...")
         try:
             async with async_session_maker() as session:
-                if (await session.execute(text("SELECT id FROM xy_users WHERE role = 'ADMIN' LIMIT 1"))).fetchone():
-                    logger.info("Administrator already exists; skipping initial administrator creation")
+                if (
+                    await session.execute(
+                        text("SELECT id FROM xy_users WHERE role = 'ADMIN' LIMIT 1")
+                    )
+                ).fetchone():
+                    logger.info(
+                        "Administrator already exists; skipping initial administrator creation"
+                    )
                     return
                 username = os.getenv("INITIAL_ADMIN_USERNAME", "").strip()
                 password = os.getenv("INITIAL_ADMIN_PASSWORD", "")
                 if not username or not is_strong_password(password):
-                    logger.warning("Initial administrator not created: set INITIAL_ADMIN_USERNAME and a strong INITIAL_ADMIN_PASSWORD")
+                    logger.warning(
+                        "Initial administrator not created: set INITIAL_ADMIN_USERNAME and a strong INITIAL_ADMIN_PASSWORD"
+                    )
                     return
-                if (await session.execute(text("SELECT id FROM xy_users WHERE username = :username LIMIT 1"), {"username": username})).fetchone():
-                    logger.warning("Initial administrator not created: INITIAL_ADMIN_USERNAME already exists")
+                if (
+                    await session.execute(
+                        text(
+                            "SELECT id FROM xy_users WHERE username = :username LIMIT 1"
+                        ),
+                        {"username": username},
+                    )
+                ).fetchone():
+                    logger.warning(
+                        "Initial administrator not created: INITIAL_ADMIN_USERNAME already exists"
+                    )
                     return
-                await session.execute(text("""INSERT INTO xy_users (username, email, password_hash, status, role, created_at, updated_at) VALUES (:username, :email, :password_hash, 'ACTIVE', 'ADMIN', NOW(), NOW())"""), {"username": username, "email": f"{username}@local.invalid", "password_hash": get_password_hash(password)})
+                await session.execute(
+                    text(
+                        """INSERT INTO xy_users (username, email, password_hash, status, role, created_at, updated_at) VALUES (:username, :email, :password_hash, 'ACTIVE', 'ADMIN', NOW(), NOW())"""
+                    ),
+                    {
+                        "username": username,
+                        "email": f"{username}@local.invalid",
+                        "password_hash": get_password_hash(password),
+                    },
+                )
                 await session.commit()
-                logger.info("Initial administrator created from environment configuration")
+                logger.info(
+                    "Initial administrator created from environment configuration"
+                )
         except IntegrityError:
-            logger.info("Initial administrator was created by another concurrent process")
+            logger.info(
+                "Initial administrator was created by another concurrent process"
+            )
         except Exception as e:
             logger.error(f"Initial administrator creation failed: {e}")
 
     async def init_system_settings(self):
         """初始化系统设置"""
         logger.info("初始化系统设置...")
-        
+
         try:
             async with async_session_maker() as session:
                 for key, value, description in self.DEFAULT_SETTINGS:
@@ -3473,7 +4194,7 @@ class DatabaseInitializer:
                                 INSERT IGNORE INTO xy_system_settings (`key`, value, description, updated_at)
                                 VALUES (:key, :value, :description, NOW())
                             """),
-                            {"key": key, "value": value, "description": description}
+                            {"key": key, "value": value, "description": description},
                         )
                     except Exception as e:
                         logger.warning(f"设置 {key} 插入失败: {e}")
@@ -3487,10 +4208,10 @@ class DatabaseInitializer:
                     """),
                     {"value": "公众号：云枢AI社"},
                 )
-                
+
                 await session.commit()
                 logger.info(f"✓ 系统设置初始化完成，共 {len(self.DEFAULT_SETTINGS)} 项")
-                
+
         except Exception as e:
             logger.error(f"✗ 初始化系统设置失败: {e}")
 
@@ -3499,9 +4220,12 @@ class DatabaseInitializer:
             plan_ids = {}
             for plan in PLAN_CATALOG:
                 params = dict(plan)
-                params['feature_flags'] = json.dumps(DEFAULT_FEATURE_FLAGS[plan['code']])
-                params['ai_unlimited'] = 1 if plan.get('ai_unlimited') else 0
-                await session.execute(text("""
+                params["feature_flags"] = json.dumps(
+                    DEFAULT_FEATURE_FLAGS[plan["code"]]
+                )
+                params["ai_unlimited"] = 1 if plan.get("ai_unlimited") else 0
+                await session.execute(
+                    text("""
                     INSERT INTO xy_billing_plans
                     (code, name, account_limit, monthly_ai_quota, ai_unlimited,
                      feature_flags, is_free, enabled, sort_order)
@@ -3513,15 +4237,18 @@ class DatabaseInitializer:
                     ai_unlimited=VALUES(ai_unlimited),
                     feature_flags=VALUES(feature_flags),
                     is_free=VALUES(is_free), sort_order=VALUES(sort_order)
-                """), params)
-                result = await session.execute(
-                    text('SELECT id FROM xy_billing_plans WHERE code=:code'),
-                    {'code': plan['code']},
+                """),
+                    params,
                 )
-                plan_ids[plan['code']] = result.scalar_one()
+                result = await session.execute(
+                    text("SELECT id FROM xy_billing_plans WHERE code=:code"),
+                    {"code": plan["code"]},
+                )
+                plan_ids[plan["code"]] = result.scalar_one()
 
             for code, cycle, months, amount in PLAN_PRICES:
-                await session.execute(text("""
+                await session.execute(
+                    text("""
                     INSERT INTO xy_billing_plan_prices
                     (plan_id, billing_cycle, duration_months, amount,
                      currency, enabled)
@@ -3529,13 +4256,27 @@ class DatabaseInitializer:
                     ON DUPLICATE KEY UPDATE
                     duration_months=VALUES(duration_months),
                     amount=VALUES(amount), enabled=VALUES(enabled)
-                """), {
-                    'plan_id': plan_ids[code], 'cycle': cycle,
-                    'months': months, 'amount': amount,
-                })
+                """),
+                    {
+                        "plan_id": plan_ids[code],
+                        "cycle": cycle,
+                        "months": months,
+                        "amount": amount,
+                    },
+                )
 
-            for code, name, base, bonus, ai_unlimited, amount, days, sort_order in AI_QUOTA_PACKAGES:
-                await session.execute(text("""
+            for (
+                code,
+                name,
+                base,
+                bonus,
+                ai_unlimited,
+                amount,
+                days,
+                sort_order,
+            ) in AI_QUOTA_PACKAGES:
+                await session.execute(
+                    text("""
                     INSERT INTO xy_ai_quota_packages
                     (code, name, base_quota, bonus_quota, ai_unlimited, amount,
                      validity_days, enabled, sort_order)
@@ -3546,30 +4287,47 @@ class DatabaseInitializer:
                     bonus_quota=VALUES(bonus_quota), ai_unlimited=VALUES(ai_unlimited),
                     amount=VALUES(amount), validity_days=VALUES(validity_days),
                     sort_order=VALUES(sort_order)
-                """), {
-                    'code': code, 'name': name, 'base': base,
-                    'bonus': bonus, 'ai_unlimited': 1 if ai_unlimited else 0,
-                    'amount': amount, 'days': days, 'sort_order': sort_order,
-                })
+                """),
+                    {
+                        "code": code,
+                        "name": name,
+                        "base": base,
+                        "bonus": bonus,
+                        "ai_unlimited": 1 if ai_unlimited else 0,
+                        "amount": amount,
+                        "days": days,
+                        "sort_order": sort_order,
+                    },
+                )
 
             # 第一版只支持月卡/季卡，禁用年付价格（不破坏性删除）。
-            await session.execute(text(
-                "UPDATE xy_billing_plan_prices SET enabled=0 WHERE billing_cycle='yearly'"
-            ))
+            await session.execute(
+                text(
+                    "UPDATE xy_billing_plan_prices SET enabled=0 WHERE billing_cycle='yearly'"
+                )
+            )
             # 废弃旧加量包码（轻量包 ai_light、旧大额包 ai_large），保留历史不删除。
-            await session.execute(text(
-                "UPDATE xy_ai_quota_packages SET enabled=0 "
-                "WHERE code IN ('ai_light','ai_large')"
-            ))
+            await session.execute(
+                text(
+                    "UPDATE xy_ai_quota_packages SET enabled=0 "
+                    "WHERE code IN ('ai_light','ai_large')"
+                )
+            )
             await session.commit()
 
     async def init_scheduled_tasks(self):
         """初始化定时任务配置"""
         logger.info("初始化定时任务配置...")
-        
+
         try:
             async with async_session_maker() as session:
-                for task_code, task_name, interval_seconds, enabled, description in self.DEFAULT_SCHEDULED_TASKS:
+                for (
+                    task_code,
+                    task_name,
+                    interval_seconds,
+                    enabled,
+                    description,
+                ) in self.DEFAULT_SCHEDULED_TASKS:
                     try:
                         await session.execute(
                             text("""
@@ -3582,15 +4340,17 @@ class DatabaseInitializer:
                                 "task_name": task_name,
                                 "interval_seconds": interval_seconds,
                                 "enabled": enabled,
-                                "description": description
-                            }
+                                "description": description,
+                            },
                         )
                     except Exception as e:
                         logger.warning(f"定时任务 {task_code} 插入失败: {e}")
-                
+
                 await session.commit()
-                logger.info(f"✓ 定时任务配置初始化完成，共 {len(self.DEFAULT_SCHEDULED_TASKS)} 项")
-                
+                logger.info(
+                    f"✓ 定时任务配置初始化完成，共 {len(self.DEFAULT_SCHEDULED_TASKS)} 项"
+                )
+
         except Exception as e:
             logger.error(f"✗ 初始化定时任务配置失败: {e}")
 
@@ -3617,7 +4377,7 @@ class DatabaseInitializer:
                                     updated_at = NOW()
                                 WHERE account_id IS NULL
                                   AND remark = '系统初始化默认地址'
-                                  AND ({' OR '.join(removed_conditions)})
+                                  AND ({" OR ".join(removed_conditions)})
                             """
                         ),
                         removed_params,
@@ -3694,16 +4454,16 @@ class DatabaseInitializer:
     async def init_redis_platform_day(self):
         """初始化Redis中的平台日"""
         logger.info("初始化Redis平台日...")
-        
+
         try:
             from common.db.redis_client import get_redis_client
-            
+
             redis_client = await get_redis_client()
             platform_day_key = "platform:day"
-            
+
             # 检查Redis中是否已存在平台日
             existing_day = await redis_client.get(platform_day_key)
-            
+
             if existing_day:
                 logger.info(f"✓ Redis平台日已存在: {existing_day}")
             else:
@@ -3711,15 +4471,14 @@ class DatabaseInitializer:
                 current_day = get_beijing_now_naive().strftime("%Y-%m-%d")
                 await redis_client.set(platform_day_key, current_day)
                 logger.info(f"✓ Redis平台日初始化完成: {current_day}")
-                
+
         except Exception as e:
             logger.warning(f"✗ 初始化Redis平台日失败（不影响系统运行）: {e}")
-
 
     async def migrate_card_item_relations(self):
         """
         迁移卡券商品关联数据（仅在关联表为空时执行一次）
-        
+
         将 xy_cards 表中 item_id 不为空的记录迁移到 xy_card_item_relations 关联表。
         关联表已有数据时跳过，避免重复迁移。
         """
@@ -3730,11 +4489,11 @@ class DatabaseInitializer:
                     text("SELECT COUNT(*) FROM xy_card_item_relations")
                 )
                 existing = existing_result.scalar()
-                
+
                 if existing > 0:
                     logger.debug(f"✓ 卡券商品关联表已有 {existing} 条数据，跳过迁移")
                     return
-                
+
                 # 统计需要迁移的数据量
                 count_result = await session.execute(
                     text("""
@@ -3743,11 +4502,11 @@ class DatabaseInitializer:
                     """)
                 )
                 total = count_result.scalar()
-                
+
                 if total == 0:
                     logger.info("✓ 无需迁移卡券商品关联数据")
                     return
-                
+
                 # 首次迁移：从 xy_cards 导入到关联表
                 migrate_result = await session.execute(
                     text("""
@@ -3758,10 +4517,12 @@ class DatabaseInitializer:
                     """)
                 )
                 await session.commit()
-                
+
                 migrated = migrate_result.rowcount
-                logger.info(f"✓ 卡券商品关联数据首次迁移完成：源数据 {total} 条，本次迁移 {migrated} 条")
-                
+                logger.info(
+                    f"✓ 卡券商品关联数据首次迁移完成：源数据 {total} 条，本次迁移 {migrated} 条"
+                )
+
         except Exception as e:
             logger.warning(f"✗ 卡券商品关联数据迁移失败（不影响系统运行）: {e}")
 
@@ -3809,7 +4570,10 @@ class DatabaseInitializer:
                             excluded_json = excluded_items  # 已经是 JSON 字符串
                         elif isinstance(excluded_items, list):
                             import json as _json
-                            excluded_json = _json.dumps(excluded_items, ensure_ascii=False)
+
+                            excluded_json = _json.dumps(
+                                excluded_items, ensure_ascii=False
+                            )
 
                     try:
                         await session.execute(
@@ -3855,7 +4619,9 @@ class DatabaseInitializer:
             async with async_session_maker() as session:
                 # 查询所有秘钥为空的用户ID
                 result = await session.execute(
-                    text("SELECT id FROM xy_users WHERE secret_key IS NULL OR secret_key = ''")
+                    text(
+                        "SELECT id FROM xy_users WHERE secret_key IS NULL OR secret_key = ''"
+                    )
                 )
                 user_ids = [row[0] for row in result.fetchall()]
 
@@ -3865,7 +4631,9 @@ class DatabaseInitializer:
 
                 # 预加载已有秘钥，减少唯一性冲突的数据库往返
                 existing_result = await session.execute(
-                    text("SELECT secret_key FROM xy_users WHERE secret_key IS NOT NULL AND secret_key != ''")
+                    text(
+                        "SELECT secret_key FROM xy_users WHERE secret_key IS NOT NULL AND secret_key != ''"
+                    )
                 )
                 used_keys = {row[0] for row in existing_result.fetchall()}
 
@@ -3879,12 +4647,16 @@ class DatabaseInitializer:
                             new_key = candidate
                             break
                     if not new_key:
-                        logger.warning(f"✗ 用户 {user_id} 分销秘钥生成失败（多次重复），跳过")
+                        logger.warning(
+                            f"✗ 用户 {user_id} 分销秘钥生成失败（多次重复），跳过"
+                        )
                         continue
 
                     try:
                         await session.execute(
-                            text("UPDATE xy_users SET secret_key = :key WHERE id = :uid"),
+                            text(
+                                "UPDATE xy_users SET secret_key = :key WHERE id = :uid"
+                            ),
                             {"key": new_key, "uid": user_id},
                         )
                         used_keys.add(new_key)
@@ -3910,4 +4682,5 @@ async def init_database():
 # 如果直接运行此脚本
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(init_database())

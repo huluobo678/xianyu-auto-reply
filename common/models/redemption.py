@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Index,
+    Integer,
+    JSON,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from common.db.base_class import Base
@@ -32,7 +41,9 @@ class RedemptionBatch(Base):
     validity_days: Mapped[int | None] = mapped_column(Integer)
     ai_unlimited: Mapped[bool] = mapped_column(nullable=False, server_default="0")
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    generated_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    generated_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -40,7 +51,9 @@ class RedemptionBatch(Base):
     disable_reason: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     details: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -64,14 +77,18 @@ class RedemptionCode(Base):
     batch_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     code_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     code_last4: Mapped[str] = mapped_column(String(4), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unused")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="unused"
+    )
     used_by: Mapped[int | None] = mapped_column(BigInteger)
     used_at: Mapped[datetime | None] = mapped_column(DateTime)
     redemption_record_id: Mapped[int | None] = mapped_column(BigInteger)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     disabled: Mapped[bool] = mapped_column(nullable=False, server_default="0")
     disable_reason: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -97,4 +114,6 @@ class RedemptionRecord(Base):
     ledger_id: Mapped[int | None] = mapped_column(BigInteger)
     idempotency_key: Mapped[str] = mapped_column(String(191), nullable=False)
     details: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
