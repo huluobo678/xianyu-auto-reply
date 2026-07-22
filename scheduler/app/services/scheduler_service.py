@@ -62,6 +62,7 @@ from app.services.scheduled_task_service import (
 )
 from common.db.session import async_session_maker
 from common.services.subscription_lifecycle_service import SubscriptionLifecycleService
+from common.utils.time_utils import get_beijing_now_naive
 
 
 class SchedulerService:
@@ -92,6 +93,7 @@ class SchedulerService:
         self._dm_send_task_handle: Optional[asyncio.Task] = None
         self._auto_order_task_handle: Optional[asyncio.Task] = None
         self._subscription_expiry_task_handle: Optional[asyncio.Task] = None
+        self._quarterly_monthly_grant_task_handle: Optional[asyncio.Task] = None
         self._redelivery_task = RedeliveryTask()
         self._rate_task = RateTask()
         self._polish_task = polish_task_service
@@ -176,6 +178,9 @@ class SchedulerService:
         self._subscription_expiry_task_handle = asyncio.create_task(
             self._run_subscription_expiry_loop()
         )
+        self._quarterly_monthly_grant_task_handle = asyncio.create_task(
+            self._run_quarterly_monthly_grant_loop()
+        )
         logger.info("[定时任务调度] 已启动")
     
     def stop(self) -> None:
@@ -248,6 +253,9 @@ class SchedulerService:
         if self._subscription_expiry_task_handle:
             self._subscription_expiry_task_handle.cancel()
             self._subscription_expiry_task_handle = None
+        if self._quarterly_monthly_grant_task_handle:
+            self._quarterly_monthly_grant_task_handle.cancel()
+            self._quarterly_monthly_grant_task_handle = None
         logger.info("[定时任务调度] 已停止")
     
     def get_task_status(self) -> dict:
@@ -1174,6 +1182,81 @@ class SchedulerService:
                 logger.info("[定时任务调度] 订阅到期扫描等待被取消")
                 break
         logger.info("[定时任务调度] 订阅到期扫描循环结束")
+
+    async def _grant_quarterly_monthly_quota_once(self) -> int:
+        """季卡月度额度发放：为活动季卡订阅发放当月套餐额度（幂等）。
+
+        - 每月 1 日由循环触发；核心逻辑对任意时刻调用都安全（按
+          ``用户+订阅+自然月`` 幂等键去重，重复执行不重复发放）。
+        - 企业版季卡跳过次数 grant，保持订阅无限状态。
+        - 调度失败可重试，独立加量包不受影响（本任务只处理套餐额度）。
+        """
+        from sqlalchemy import or_, select
+
+        from common.models.billing import UserSubscription
+        from common.services.entitlement_grant_service import (
+            EntitlementGrantService,
+        )
+
+        now = get_beijing_now_naive()
+        async with async_session_maker() as session:
+            async with session.begin():
+                subscriptions = list(
+                    await session.scalars(
+                        select(UserSubscription)
+                        .where(
+                            UserSubscription.status == "active",
+                            UserSubscription.billing_cycle == "quarterly",
+                            UserSubscription.plan_code != "free",
+                            or_(
+                                UserSubscription.expires_at.is_(None),
+                                UserSubscription.expires_at > now,
+                            ),
+                        )
+                        .with_for_update(skip_locked=True)
+                    )
+                )
+                grant_service = EntitlementGrantService(session)
+                processed = 0
+                for subscription in subscriptions:
+                    try:
+                        await grant_service.grant_scheduled_monthly_quota(
+                            subscription, now
+                        )
+                        processed += 1
+                    except Exception as exc:
+                        # 单个订阅失败不影响其余订阅，整体可重试
+                        logger.error(
+                            f"[定时任务调度] 季卡月度额度发放失败 "
+                            f"subscription_id={getattr(subscription, 'id', None)}: {exc}"
+                        )
+                return processed
+
+    async def _run_quarterly_monthly_grant_loop(self) -> None:
+        """季卡月度额度发放循环：每月 1 日触发，其余日期空转等待。"""
+        logger.info("[定时任务调度] 季卡月度额度发放循环开始")
+        while self._running:
+            try:
+                now = get_beijing_now_naive()
+                if now.day == 1:
+                    granted = await self._grant_quarterly_monthly_quota_once()
+                    if granted:
+                        logger.info(
+                            f"[定时任务调度] 季卡月度额度发放完成，处理 {granted} 个订阅"
+                        )
+            except asyncio.CancelledError:
+                logger.info("[定时任务调度] 季卡月度额度发放被取消")
+                break
+            except Exception as exc:
+                logger.error(f"[定时任务调度] 季卡月度额度发放异常: {exc}")
+
+            try:
+                # 每小时检查一次是否进入月初（幂等键保证重复执行不重复发放）
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                logger.info("[定时任务调度] 季卡月度额度发放等待被取消")
+                break
+        logger.info("[定时任务调度] 季卡月度额度发放循环结束")
 
 
 # 全局实例获取函数

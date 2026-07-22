@@ -12,7 +12,7 @@ from loguru import logger
 
 from common.models.ai_usage import AIAccountMonthlyUsage, AIAccountQuotaConfig
 from common.models.ai_usage import AIQuotaConfig, AIUsageRequest, AIUserMonthlyUsage
-from common.models.billing import AIQuotaGrant
+from common.models.billing import AIQuotaGrant, UserSubscription
 from common.models.xy_account import XYAccount
 from common.services.subscription_lifecycle_service import SubscriptionLifecycleService
 from common.utils.time_utils import get_beijing_now_naive
@@ -22,6 +22,9 @@ DEFAULT_ACCOUNT_CONCURRENCY = 1
 RESERVATION_TIMEOUT = timedelta(minutes=15)
 INPUT_COST_PER_MILLION = Decimal(10)
 OUTPUT_COST_PER_MILLION = Decimal(30)
+
+# 无限权益的专用值，仅作为内部计数占位，永不作为次数额度存储到 grant。
+UNLIMITED_QUOTA_SENTINEL = -1
 
 
 class AIQuotaExceededError(RuntimeError):
@@ -108,10 +111,22 @@ class AIUsageService:
         await AIUsageService._release_stale_reservations_locked(
             session, account, user_usage, account_usage, stale_ids, now
         )
-        quota_grant_id = await AIUsageService._reserve_user_quota(
-            session, account.owner_id, user_usage, user_config, now
+        unlimited = await AIUsageService._has_active_unlimited(
+            session, account.owner_id, now
         )
-        AIUsageService._check_quota(account_usage, account_config.monthly_quota if account_config else None, "account")
+        if unlimited:
+            # 无限权益：不因次数额度耗尽停止调用，不消耗次数 grant；
+            # 仍受并发、频率、单次 Token/长度限制与风控约束。
+            quota_grant_id = None
+        else:
+            quota_grant_id = await AIUsageService._reserve_user_quota(
+                session, account.owner_id, user_usage, user_config, now
+            )
+            AIUsageService._check_quota(
+                account_usage,
+                account_config.monthly_quota if account_config else None,
+                "account",
+            )
         concurrency = account_config.max_concurrency if account_config else DEFAULT_ACCOUNT_CONCURRENCY
         if account_usage.reserved_replies >= max(1, concurrency):
             raise AIAccountConcurrencyError("AI account concurrency limit reached")
@@ -383,6 +398,39 @@ class AIUsageService:
             raise AIQuotaExceededError(f"AI {scope} monthly quota exhausted")
 
     @staticmethod
+    async def _has_active_unlimited(session: AsyncSession, user_id: int, now: datetime) -> bool:
+        """判定用户当前是否持有有效无限权益。
+
+        判定顺序：
+        1. 当前有效企业版订阅的无限权益（``subscription.ai_unlimited``）；
+        2. 当前有效的无限包 AIQuotaGrant（``ai_unlimited=1`` 且在有效期内）。
+
+        无限不等于停止计量：commit 仍记录有效回复、Token、成本；仅不因次数额度
+        耗尽停止调用，且不消耗次数 grant。本方法永不返回伪数值。
+        """
+        unlimited_grant = await session.scalar(
+            select(AIQuotaGrant).where(
+                AIQuotaGrant.user_id == user_id,
+                AIQuotaGrant.ai_unlimited.is_(True),
+                AIQuotaGrant.status == "active",
+                AIQuotaGrant.starts_at <= now,
+                or_(AIQuotaGrant.expires_at.is_(None), AIQuotaGrant.expires_at > now),
+            ).limit(1)
+        )
+        if unlimited_grant:
+            return True
+        unlimited_sub = await session.scalar(
+            select(UserSubscription).where(
+                UserSubscription.user_id == user_id,
+                UserSubscription.status == "active",
+                UserSubscription.ai_unlimited.is_(True),
+                UserSubscription.plan_code != "free",
+                or_(UserSubscription.expires_at.is_(None), UserSubscription.expires_at > now),
+            ).limit(1)
+        )
+        return unlimited_sub is not None
+
+    @staticmethod
     def _get_user_quota(config: Any) -> int | None:
         if not config:
             return None
@@ -390,6 +438,9 @@ class AIUsageService:
 
     @staticmethod
     async def _mark_thresholds(session, user_id, usage, now):
+        # 无限用户跳过 80%/100% 阈值提醒（无限仍计量，但不按次数额度阈值告警）
+        if await AIUsageService._has_active_unlimited(session, user_id, now):
+            return
         config = await session.scalar(select(AIQuotaConfig).where(AIQuotaConfig.user_id == user_id))
         quota = AIUsageService._get_user_quota(config)
         if not quota or quota <= 0:

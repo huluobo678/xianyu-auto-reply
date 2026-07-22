@@ -79,7 +79,8 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_account_concurrency_blocks_second_reservation(self):
         account = SimpleNamespace(id=8, owner_id=7, account_id="acct")
         account_config = SimpleNamespace(monthly_quota=None, max_concurrency=1, requests_per_minute=60)
-        session = FakeSession([[], usage(), usage(reserved=1), None, account_config])
+        # _has_active_unlimited 在额度判定前先查 AIQuotaGrant / UserSubscription（均无无限权益）
+        session = FakeSession([[], usage(), usage(reserved=1), None, account_config, None, None])
         with patch(
             "common.services.ai_usage_service.SubscriptionLifecycleService.expire_user_if_due",
             new=AsyncMock(return_value=False),
@@ -209,7 +210,8 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         user_usage = usage(reserved=1)
         account_usage = usage(reserved=1)
-        session = FakeSession([request, user_usage, account_usage, None])
+        # commit→_mark_thresholds→_has_active_unlimited 先查 AIQuotaGrant/UserSubscription（均无）
+        session = FakeSession([request, user_usage, account_usage, None, None, None])
         committed = await AIUsageService.commit(session, 1, 55)
         self.assertTrue(committed)
         self.assertEqual((user_usage.effective_replies, user_usage.reserved_replies), (1, 0))
@@ -245,7 +247,8 @@ class AIUsageServiceTests(unittest.IsolatedAsyncioTestCase):
         quota = SimpleNamespace(package_quota=6, independent_quota=4)
         monthly_usage = usage(effective=8)
         monthly_usage.period_start = date(2026, 7, 1)
-        session = FakeSession([quota])
+        # _has_active_unlimited 先查 AIQuotaGrant/UserSubscription（均无），再查 AIQuotaConfig
+        session = FakeSession([None, None, quota])
         now = datetime(2026, 7, 16)
         await AIUsageService._mark_thresholds(session, 7, monthly_usage, now)
         self.assertEqual(monthly_usage.warned_80_at, now)

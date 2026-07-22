@@ -1790,6 +1790,11 @@ class DatabaseInitializer:
         ],
         "xy_user_subscriptions": [
             (
+                "ai_unlimited",
+                "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '当前套餐是否无限权益'",
+                "monthly_ai_quota",
+            ),
+            (
                 "pending_plan_code",
                 "VARCHAR(32) DEFAULT NULL COMMENT '待生效降级套餐编码'",
                 "pending_plan_id",

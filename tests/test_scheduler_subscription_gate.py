@@ -7,11 +7,26 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scheduler'))
 
-from app.services.scheduler.listing_monitor_task import ListingMonitorTaskService  # noqa: E402
-from app.services.scheduler_service import SchedulerService  # noqa: E402
 from common.models.user import UserRole  # noqa: E402
+
+
+def _load_scheduler_app():
+    """加载 scheduler 子项目的 ``app`` 包。
+
+    多个子项目（websocket / scheduler）顶层包都叫 ``app``，同一进程内先后导入会
+    互相覆盖 ``sys.modules['app']``。本测试在用到前清除已缓存的 ``app`` 包并加载
+    scheduler 的 ``app``，使其与 websocket 的 ``app`` 测试可在同一 unittest 进程内
+    共存（各自在用到时加载所需 app）。
+    """
+    for key in list(sys.modules):
+        if key == "app" or key.startswith("app."):
+            del sys.modules[key]
+    sys.path.insert(0, str(ROOT / "scheduler"))
+    from app.services.scheduler.listing_monitor_task import ListingMonitorTaskService
+    from app.services.scheduler_service import SchedulerService
+
+    return ListingMonitorTaskService, SchedulerService
 
 
 class FakeSessionContext:
@@ -53,8 +68,13 @@ class SchedulerSession(AsyncContext):
         return self.transaction
 
 class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.ListingMonitorTaskService, self.SchedulerService = (
+            _load_scheduler_app()
+        )
+
     async def test_missing_owner_is_denied(self):
-        allowed = await ListingMonitorTaskService()._owner_can_run_listing_monitor(None)
+        allowed = await self.ListingMonitorTaskService()._owner_can_run_listing_monitor(None)
 
         self.assertFalse(allowed)
 
@@ -67,7 +87,7 @@ class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
             'app.services.scheduler.listing_monitor_task.async_session_maker',
             session_factory,
         ):
-            allowed = await ListingMonitorTaskService()._owner_can_run_listing_monitor(1)
+            allowed = await self.ListingMonitorTaskService()._owner_can_run_listing_monitor(1)
 
         self.assertTrue(allowed)
 
@@ -86,7 +106,7 @@ class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=False),
             ) as feature_check,
         ):
-            allowed = await ListingMonitorTaskService()._owner_can_run_listing_monitor(2)
+            allowed = await self.ListingMonitorTaskService()._owner_can_run_listing_monitor(2)
 
         self.assertFalse(allowed)
         feature_check.assert_awaited_once_with(2, ('listing_monitor',))
@@ -101,7 +121,7 @@ class SchedulerSubscriptionGateTests(unittest.IsolatedAsyncioTestCase):
             "app.services.scheduler_service.SubscriptionLifecycleService.expire_due_subscriptions",
             new=lifecycle,
         ):
-            count = await SchedulerService()._expire_due_subscriptions_once()
+            count = await self.SchedulerService()._expire_due_subscriptions_once()
 
         self.assertEqual(count, 4)
         lifecycle.assert_awaited_once_with(limit=500)

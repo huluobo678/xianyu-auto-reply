@@ -42,13 +42,44 @@ def expired_subscription():
         status="active",
         account_limit=5,
         monthly_ai_quota=5000,
+        ai_unlimited=False,
         feature_snapshot=["ai_reply", "listing_monitor"],
         current_period_start=None,
         current_period_end=None,
         starts_at=datetime(2026, 6, 18, 12, 0),
         expires_at=datetime(2026, 7, 18, 11, 59),
-        pending_plan_id=4,
+        pending_plan_id=None,
         source_order_id=99,
+    )
+
+
+def pending_subscription():
+    """已到期且有待生效降级套餐的订阅：到期应激活 pending 而非降为免费。"""
+    return SimpleNamespace(
+        id=12,
+        user_id=7,
+        plan_id=3,
+        plan_code="enterprise",
+        billing_cycle="monthly",
+        status="active",
+        account_limit=30,
+        monthly_ai_quota=0,
+        ai_unlimited=True,
+        feature_snapshot=["ai_reply", "api_access"],
+        current_period_start=None,
+        current_period_end=None,
+        starts_at=datetime(2026, 6, 18, 12, 0),
+        expires_at=datetime(2026, 7, 18, 11, 59),
+        pending_plan_id=2,
+        pending_plan_code="standard",
+        pending_billing_cycle="monthly",
+        pending_duration_months=1,
+        pending_account_limit=3,
+        pending_monthly_ai_quota=1000,
+        pending_ai_unlimited=False,
+        pending_feature_snapshot=["ai_reply"],
+        pending_source="redemption",
+        source_order_id=None,
     )
 
 
@@ -145,6 +176,33 @@ class SubscriptionLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(configs), 1)
         self.assertEqual(configs[0].package_quota, 0)
         self.assertEqual(configs[0].independent_quota, 0)
+
+    async def test_expired_subscription_activates_pending_plan(self):
+        subscription = pending_subscription()
+        user = SimpleNamespace(id=7, account_limit=30)
+        quota = SimpleNamespace(package_quota=0, independent_quota=0)
+        session = FakeSession([subscription, user, quota])
+        now = datetime(2026, 7, 18, 12, 0)
+
+        changed = await SubscriptionLifecycleService(session).expire_user_if_due(
+            7, now
+        )
+
+        self.assertTrue(changed)
+        # 激活待生效降级套餐，而非降为免费
+        self.assertEqual(subscription.plan_code, "standard")
+        self.assertEqual(subscription.account_limit, 3)
+        self.assertEqual(subscription.monthly_ai_quota, 1000)
+        self.assertFalse(subscription.ai_unlimited)
+        self.assertEqual(subscription.expires_at, datetime(2026, 8, 18, 12, 0))
+        self.assertIsNone(subscription.pending_plan_id)
+        self.assertEqual(user.account_limit, 3)
+        self.assertEqual(quota.package_quota, 1000)
+        ledgers = [
+            item for item in session.added if isinstance(item, EntitlementLedger)
+        ]
+        self.assertEqual(len(ledgers), 1)
+        self.assertEqual(ledgers[0].event_type, "pending_plan_activated")
 
     async def test_batch_expiry_processes_locked_rows_once(self):
         first = expired_subscription()

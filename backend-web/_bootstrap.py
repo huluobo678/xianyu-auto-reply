@@ -88,6 +88,13 @@ async def lifespan(app: FastAPI):
         await ensure_jwt_secret_key(settings)
     except Exception as e:
         logger.error(f"JWT 密钥自检失败: {e}")
+
+    # 自检兑换码 HMAC 摘要密钥：缺失时生成密码学安全随机密钥并持久化（数据库托管）
+    try:
+        from app.services.redemption_secret_service import ensure_redemption_secret
+        await ensure_redemption_secret()
+    except Exception as e:
+        logger.error(f"兑换码 HMAC 密钥自检失败: {e}")
     
     # 从数据库加载日志保留天数配置
     from common.utils.logging_utils import apply_db_log_retention, run_db_log_retention_sync

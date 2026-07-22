@@ -128,6 +128,7 @@ class UserSubscription(RecordMixin, Base):
     monthly_ai_quota: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="0"
     )
+    ai_unlimited: Mapped[bool] = mapped_column(nullable=False, server_default="0")
     feature_snapshot: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     current_period_start: Mapped[date | None] = mapped_column(Date)
     current_period_end: Mapped[date | None] = mapped_column(Date)
