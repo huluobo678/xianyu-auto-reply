@@ -40,6 +40,9 @@ class RedemptionBatch(Base):
     duration_months: Mapped[int | None] = mapped_column(Integer)
     validity_days: Mapped[int | None] = mapped_column(Integer)
     ai_unlimited: Mapped[bool] = mapped_column(nullable=False, server_default="0")
+    # 生成批次时冻结的完整、不可变权益快照。兑换时只依赖此快照发放权益，
+    # 不再重新读取当前套餐/加量包目录，避免目录后续变更影响已售出的兑换码。
+    entitlement_snapshot: Mapped[dict | None] = mapped_column(JSON)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     generated_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
@@ -99,7 +102,13 @@ class RedemptionRecord(Base):
 
     __tablename__ = "xy_redemption_records"
     __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uk_redemption_record_idempotency"),
+        # 幂等键按用户隔离：同一用户同一幂等键只能对应一次兑换；
+        # 不同用户可复用相同幂等键，互不影响、互不可读。
+        UniqueConstraint(
+            "user_id",
+            "idempotency_key",
+            name="uk_redemption_record_idempotency",
+        ),
         Index("idx_rr_user_created", "user_id", "created_at"),
         Index("idx_rr_batch_code", "batch_id", "code_id"),
     )

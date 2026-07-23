@@ -1190,6 +1190,8 @@ class SchedulerService:
           ``用户+订阅+自然月`` 幂等键去重，重复执行不重复发放）。
         - 企业版季卡跳过次数 grant，保持订阅无限状态。
         - 调度失败可重试，独立加量包不受影响（本任务只处理套餐额度）。
+        - 事务隔离：单条订阅发放失败只回滚该条（savepoint），不影响其余订阅，
+          也不会使整批事务进入 failed 状态导致后续任务无法继续或整批回滚。
         """
         from sqlalchemy import or_, select
 
@@ -1220,9 +1222,12 @@ class SchedulerService:
                 processed = 0
                 for subscription in subscriptions:
                     try:
-                        await grant_service.grant_scheduled_monthly_quota(
-                            subscription, now
-                        )
+                        # savepoint 隔离单条失败：数据库异常只会回滚本 savepoint，
+                        # 外层事务保持可用，后续订阅仍可继续处理。
+                        async with session.begin_nested():
+                            await grant_service.grant_scheduled_monthly_quota(
+                                subscription, now
+                            )
                         processed += 1
                     except Exception as exc:
                         # 单个订阅失败不影响其余订阅，整体可重试

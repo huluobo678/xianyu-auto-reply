@@ -7,10 +7,12 @@
   的临时安全载荷（进程内短时缓存），绝不从摘要反推，也绝不为支持二次导出而把明文写库。
 - 导出文件名使用 ``secrets`` 随机串，输出到专用临时目录（已加入 .gitignore），
   下载或超时后删除，不允许进入 Git。
-- 核销在同一数据库事务内完成：HMAC→行锁→校验→发放→标记 used→写记录→提交；
-  失败整体回滚，兑换码不被消耗，不形成部分权益。
-- 并发与幂等：行锁 + ``code_digest`` 唯一约束 + ``RedemptionRecord.idempotency_key``
-  唯一约束共同保证；不依赖应用内锁。
+- 核销在同一数据库事务内完成：HMAC→行锁兑换码→按 (user_id, idempotency_key)
+  幂等校验→校验码状态→按批次冻结快照发放→标记 used→写记录→提交；失败整体回滚，
+  兑换码不被消耗，不形成部分权益。
+- 并发与幂等：行锁 + ``code_digest`` 唯一约束 + ``RedemptionRecord`` 的
+  ``(user_id, idempotency_key)`` 唯一约束共同保证；幂等键按用户隔离，不依赖应用内锁。
+- HMAC 密钥失败关闭：库不可用或未初始化时绝不回退进程内临时随机密钥，生成/核销直接失败。
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from pathlib import Path
 
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.models.billing import AIQuotaPackage, BillingPlan
@@ -60,7 +63,7 @@ _EXPORT_DIR_NAME = "redemption_exports"
 # 仅存在于内存，进程重启即丢失——明文永远不落库。
 _pending_exports: dict[int, list[str]] = {}
 
-# 进程内密钥缓存（由 backend-web bootstrap 注入；缺失时回退查库/临时生成）。
+# 进程内密钥缓存（由 backend-web bootstrap 持久化成功后注入；缺失时查库，库无则失败关闭）。
 _injected_secret: str | None = None
 
 
@@ -106,24 +109,36 @@ def reset_redemption_secret() -> None:
 
 
 async def _resolve_secret(session: AsyncSession) -> str:
-    """获取 HMAC 密钥：优先进程内注入，其次查库，最后临时生成（告警）。"""
+    """获取 HMAC 密钥：失败关闭，绝不回退进程内临时随机密钥。
+
+    - 进程内已注入（由 backend-web bootstrap 持久化成功后注入）→ 直接采用；
+    - 否则查库：库中存在有效密钥 → 注入缓存并采用；
+    - 库中无密钥或读取异常 → 抛 ``RedemptionError``，兑换码生成/核销失败关闭，
+      不允许用临时随机密钥继续运行（否则进程重启后将无法验证历史兑换码）。
+
+    密钥不得出现在日志、异常文本或接口响应中。
+    """
     global _injected_secret
     if _injected_secret:
         return _injected_secret
-    row = await session.scalar(
-        select(SystemSetting.value).where(
-            SystemSetting.key == REDEMPTION_HMAC_SETTING_KEY
+    try:
+        row = await session.scalar(
+            select(SystemSetting.value).where(
+                SystemSetting.key == REDEMPTION_HMAC_SETTING_KEY
+            )
         )
-    )
+    except Exception as exc:
+        # 数据库读取失败：失败关闭，不回退临时密钥
+        raise RedemptionError(
+            "Redemption HMAC secret is unavailable; database read failed"
+        ) from exc
     if row and len(row) >= 32:
         _injected_secret = row
         return _injected_secret
-    # 极端兜底（库未初始化）：进程内临时密钥，不持久化，仅维持本次运行可核销
-    _injected_secret = secrets.token_hex(32)
-    logger.warning(
-        "兑换码 HMAC 密钥未在数据库中找到，本次使用进程内临时密钥（重启后无法核销历史码）"
+    # 数据库未初始化密钥：失败关闭
+    raise RedemptionError(
+        "Redemption HMAC secret is not initialized; redeem/generate rejected"
     )
-    return _injected_secret
 
 
 def compute_code_digest(code: str, secret: str) -> str:
@@ -134,6 +149,49 @@ def compute_code_digest(code: str, secret: str) -> str:
 def _generate_code() -> str:
     """生成密码学安全随机兑换码（无连续编号/时间戳/可预测编码）。"""
     return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
+
+
+# 权益快照必须覆盖的字段：兑换时只依赖快照发放权益，缺少任一字段即失败关闭。
+_PLAN_SNAPSHOT_REQUIRED_FIELDS = (
+    "plan_id",
+    "plan_code",
+    "billing_cycle",
+    "duration_months",
+    "account_limit",
+    "monthly_ai_quota",
+    "ai_unlimited",
+    "feature_flags",
+)
+_PACKAGE_SNAPSHOT_REQUIRED_FIELDS = (
+    "package_code",
+    "base_quota",
+    "bonus_quota",
+    "total_quota",
+    "validity_days",
+    "ai_unlimited",
+)
+
+
+def _validate_plan_snapshot(snapshot: object) -> None:
+    """校验套餐权益快照结构，缺字段时失败关闭。"""
+    if not isinstance(snapshot, dict):
+        raise RedemptionError("Redemption batch plan snapshot is corrupted")
+    missing = [f for f in _PLAN_SNAPSHOT_REQUIRED_FIELDS if f not in snapshot]
+    if missing:
+        raise RedemptionError(
+            "Redemption batch plan snapshot is incomplete; redeem rejected"
+        )
+
+
+def _validate_package_snapshot(snapshot: object) -> None:
+    """校验加量包权益快照结构，缺字段时失败关闭。"""
+    if not isinstance(snapshot, dict):
+        raise RedemptionError("Redemption batch package snapshot is corrupted")
+    missing = [f for f in _PACKAGE_SNAPSHOT_REQUIRED_FIELDS if f not in snapshot]
+    if missing:
+        raise RedemptionError(
+            "Redemption batch package snapshot is incomplete; redeem rejected"
+        )
 
 
 def _export_dir() -> Path:
@@ -172,12 +230,16 @@ class RedemptionService:
                 self._resolve_plan_params(product_code, cycle_or_validity)
             )
             validity_days = None
+            entitlement_snapshot = await self._build_plan_snapshot(
+                product_code, billing_cycle, duration_months
+            )
         else:
             validity_days, product_name, ai_unlimited = self._resolve_package_params(
                 product_code, cycle_or_validity
             )
             billing_cycle = None
             duration_months = None
+            entitlement_snapshot = await self._build_package_snapshot(product_code)
 
         batch_no = f"RB{now.strftime('%Y%m%d%H%M%S')}{secrets.token_hex(4)}"
         batch = RedemptionBatch(
@@ -189,6 +251,7 @@ class RedemptionService:
             duration_months=duration_months,
             validity_days=validity_days,
             ai_unlimited=ai_unlimited,
+            entitlement_snapshot=entitlement_snapshot,
             quantity=count,
             generated_count=count,
             used_count=0,
@@ -324,16 +387,40 @@ class RedemptionService:
         idempotency_key: str,
         now: datetime | None = None,
     ) -> RedeemResult:
-        """核销兑换码并发放权益。整个流程在单事务内完成，失败整体回滚。"""
+        """核销兑换码并发放权益。整个流程在单事务内完成，失败整体回滚。
+
+        幂等键按用户隔离：
+        - 同一用户同一幂等键重放同一兑换码 → 返回已有结果，不重复发放；
+        - 同一用户同一幂等键提交不同兑换码 → 明确拒绝，不返回旧请求的成功结果；
+        - 不同用户复用相同幂等键互不影响，且互不可读对方兑换结果。
+        """
         now = now or get_beijing_now_naive()
         async with self.session.begin():
-            # 幂等：相同 idempotency_key 重放，返回已有结果，不重复发放
+            secret = await _resolve_secret(self.session)
+            digest = compute_code_digest(code_plain, secret)
+
+            # 行锁锁定兑换码：并发兑换同一码只允许一个成功
+            code = await self.session.scalar(
+                select(RedemptionCode)
+                .where(RedemptionCode.code_digest == digest)
+                .with_for_update()
+            )
+            if not code:
+                raise RedemptionError("Invalid redemption code")
+
+            # 幂等：按 (user_id, idempotency_key) 查询，禁止跨用户读取
             existing = await self.session.scalar(
                 select(RedemptionRecord).where(
-                    RedemptionRecord.idempotency_key == idempotency_key
+                    RedemptionRecord.user_id == user_id,
+                    RedemptionRecord.idempotency_key == idempotency_key,
                 )
             )
             if existing:
+                if existing.code_id != code.id:
+                    # 同一用户同一幂等键提交了不同兑换码：明确拒绝
+                    raise RedemptionError(
+                        "Idempotency key already used for a different redemption code"
+                    )
                 return RedeemResult(
                     record_id=existing.id,
                     code_id=existing.code_id,
@@ -346,17 +433,7 @@ class RedemptionService:
                     duplicate=True,
                 )
 
-            secret = await _resolve_secret(self.session)
-            digest = compute_code_digest(code_plain, secret)
-
-            # 行锁锁定兑换码：并发兑换同一码只允许一个成功
-            code = await self.session.scalar(
-                select(RedemptionCode)
-                .where(RedemptionCode.code_digest == digest)
-                .with_for_update()
-            )
-            if not code:
-                raise RedemptionError("Invalid redemption code")
+            # 校验兑换码状态（replay 已提前返回，此处遇到 used 即并发冲突）
             if code.disabled:
                 raise RedemptionError("Redemption code is disabled")
             if code.status != "unused":
@@ -375,6 +452,7 @@ class RedemptionService:
             try:
                 grant_result = await self._grant_for_batch(
                     batch=batch,
+                    code_id=code.id,
                     user_id=user_id,
                     idempotency_key=idempotency_key,
                     now=now,
@@ -398,7 +476,14 @@ class RedemptionService:
                 },
             )
             self.session.add(record)
-            await self.session.flush()
+            try:
+                await self.session.flush()
+            except IntegrityError as exc:
+                # 并发场景下同一 (user_id, idempotency_key) 被另一请求抢先写入：
+                # 失败关闭，整体回滚，不重复发放、不消耗本兑换码。
+                raise RedemptionError(
+                    "Redemption idempotency conflict; retry the request"
+                ) from exc
 
             code.status = "used"
             code.used_by = user_id
@@ -423,63 +508,83 @@ class RedemptionService:
         self,
         *,
         batch: RedemptionBatch,
+        code_id: int,
         user_id: int,
         idempotency_key: str,
         now: datetime,
     ):
+        """根据批次冻结的权益快照发放权益，不重新依赖当前套餐目录。
+
+        ``code_id`` / ``batch_id`` 写入 source，由通用发放服务落入权益流水
+        ``details`` 与加量包 grant 的 ``source_id``，保证可从权益追溯到具体兑换码。
+        """
+        snapshot = batch.entitlement_snapshot
+        if not snapshot:
+            # 快照缺失：失败关闭，不消耗兑换码、不发放部分权益
+            raise RedemptionError(
+                "Redemption batch entitlement snapshot is missing; redeem rejected"
+            )
         grant_service = EntitlementGrantService(self.session)
         source = {
             "kind": "redemption",
             "event_type": "redemption_grant",
-            "code_id": None,
+            "code_id": code_id,
+            "batch_id": batch.id,
             "order_id": None,
         }
         if batch.product_type == "plan":
-            plan_snapshot = await self._build_plan_snapshot(batch)
+            _validate_plan_snapshot(snapshot)
             return await grant_service.grant_plan(
                 user_id=user_id,
-                plan_snapshot=plan_snapshot,
+                plan_snapshot=snapshot,
                 billing_cycle=str(batch.billing_cycle),
                 duration_months=int(batch.duration_months or 1),
                 idempotency_key=idempotency_key,
                 source=source,
                 now=now,
             )
-        package_snapshot = await self._build_package_snapshot(batch)
+        _validate_package_snapshot(snapshot)
         return await grant_service.grant_quota_package(
             user_id=user_id,
-            package_snapshot=package_snapshot,
+            package_snapshot=snapshot,
             idempotency_key=idempotency_key,
             source=source,
             now=now,
         )
 
-    async def _build_plan_snapshot(self, batch: RedemptionBatch) -> dict:
+    async def _build_plan_snapshot(
+        self, product_code: str, billing_cycle: str | None, duration_months: int | None
+    ) -> dict:
+        """生成批次时从当前套餐目录冻结完整权益快照。"""
         plan = await self.session.scalar(
-            select(BillingPlan).where(BillingPlan.code == batch.product_code)
+            select(BillingPlan).where(BillingPlan.code == product_code)
         )
         if not plan:
             raise RedemptionError("Plan not found for redemption batch")
         return {
             "plan_id": plan.id,
             "plan_code": plan.code,
-            "billing_cycle": batch.billing_cycle,
-            "duration_months": batch.duration_months or 1,
+            "plan_name": plan.name,
+            "billing_cycle": billing_cycle,
+            "duration_months": duration_months or 1,
             "account_limit": plan.account_limit,
             "monthly_ai_quota": plan.monthly_ai_quota,
             "ai_unlimited": bool(plan.ai_unlimited),
             "feature_flags": plan.feature_flags,
+            "sort_order": plan.sort_order,
         }
 
-    async def _build_package_snapshot(self, batch: RedemptionBatch) -> dict:
+    async def _build_package_snapshot(self, product_code: str) -> dict:
+        """生成批次时从当前加量包目录冻结完整权益快照。"""
         pkg = await self.session.scalar(
-            select(AIQuotaPackage).where(AIQuotaPackage.code == batch.product_code)
+            select(AIQuotaPackage).where(AIQuotaPackage.code == product_code)
         )
         if not pkg:
             raise RedemptionError("Quota package not found for redemption batch")
         total = int(pkg.base_quota) + int(pkg.bonus_quota)
         return {
             "package_code": pkg.code,
+            "package_name": pkg.name,
             "base_quota": int(pkg.base_quota),
             "bonus_quota": int(pkg.bonus_quota),
             "total_quota": total,

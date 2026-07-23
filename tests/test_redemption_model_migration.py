@@ -63,11 +63,18 @@ class RedemptionModelMigrationTests(unittest.TestCase):
 
     def test_redemption_record_idempotency_unique(self):
         constraints = {
-            c.name
+            c.name: c
             for c in RedemptionRecord.__table__.constraints
             if c.__class__.__name__ == "UniqueConstraint"
         }
         self.assertIn("uk_redemption_record_idempotency", constraints)
+        # 幂等键按用户隔离：(user_id, idempotency_key)
+        cols = [c.name for c in constraints["uk_redemption_record_idempotency"].columns]
+        self.assertEqual(cols, ["user_id", "idempotency_key"])
+
+    def test_redemption_batch_entitlement_snapshot_field(self):
+        cols = set(inspect(RedemptionBatch).columns.keys())
+        self.assertIn("entitlement_snapshot", cols)
 
     def test_redemption_models_exported(self):
         from common.models import _exports

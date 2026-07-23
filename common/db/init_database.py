@@ -1694,6 +1694,7 @@ class DatabaseInitializer:
                 duration_months INT DEFAULT NULL COMMENT '套餐月数',
                 validity_days INT DEFAULT NULL COMMENT '加量包有效期天数',
                 ai_unlimited TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否为无限权益',
+                entitlement_snapshot JSON DEFAULT NULL COMMENT '生成时冻结的完整权益快照，兑换时只依赖此快照',
                 quantity INT NOT NULL COMMENT '申请数量',
                 generated_count INT NOT NULL DEFAULT 0 COMMENT '已生成数量',
                 used_count INT NOT NULL DEFAULT 0 COMMENT '已兑换数量',
@@ -1743,10 +1744,10 @@ class DatabaseInitializer:
                 product_code VARCHAR(32) NOT NULL COMMENT '产品编码',
                 grant_id BIGINT DEFAULT NULL COMMENT '关联的AIQuotaGrant ID',
                 ledger_id BIGINT DEFAULT NULL COMMENT '关联的EntitlementLedger ID',
-                idempotency_key VARCHAR(191) NOT NULL COMMENT '幂等键',
+                idempotency_key VARCHAR(191) NOT NULL COMMENT '幂等键（按用户隔离）',
                 details JSON DEFAULT NULL COMMENT '兑换详情',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-                UNIQUE KEY uk_redemption_record_idempotency (idempotency_key),
+                UNIQUE KEY uk_redemption_record_idempotency (user_id, idempotency_key),
                 INDEX idx_rr_user_created (user_id, created_at),
                 INDEX idx_rr_batch_id (batch_id),
                 INDEX idx_rr_batch_code (batch_id, code_id)
@@ -1833,6 +1834,13 @@ class DatabaseInitializer:
                 "pending_source",
                 "VARCHAR(24) DEFAULT NULL COMMENT '待生效来源'",
                 "pending_feature_snapshot",
+            ),
+        ],
+        "xy_redemption_batches": [
+            (
+                "entitlement_snapshot",
+                "JSON DEFAULT NULL COMMENT '生成时冻结的完整权益快照，兑换时只依赖此快照'",
+                "ai_unlimited",
             ),
         ],
         "xy_listing_monitor_tasks": [
@@ -2823,6 +2831,66 @@ class DatabaseInitializer:
                     logger.info("✓ xy_accounts: 创建 idx_account_created 索引")
             except Exception as e:
                 logger.warning(f"✗ xy_accounts idx_account_created 创建失败: {e}")
+
+            # xy_redemption_records: 幂等键由全局唯一改为按用户隔离 (user_id, idempotency_key)
+            try:
+                # 检查新复合唯一键是否已存在
+                check_new = text("""
+                    SELECT COUNT(*) FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'xy_redemption_records'
+                    AND INDEX_NAME = 'uk_redemption_record_idempotency'
+                """)
+                result = await conn.execute(check_new)
+                index_exists = result.scalar() > 0
+
+                if index_exists:
+                    # 索引存在：判断其列组成是否已是 (user_id, idempotency_key)
+                    cols = await conn.execute(
+                        text("""
+                            SELECT COLUMN_NAME FROM information_schema.STATISTICS
+                            WHERE TABLE_SCHEMA = DATABASE()
+                            AND TABLE_NAME = 'xy_redemption_records'
+                            AND INDEX_NAME = 'uk_redemption_record_idempotency'
+                            ORDER BY SEQ_IN_INDEX
+                        """)
+                    )
+                    col_names = [row[0] for row in cols.fetchall()]
+                    if col_names == ["user_id", "idempotency_key"]:
+                        logger.debug(
+                            "✓ xy_redemption_records: uk_redemption_record_idempotency 已是 (user_id, idempotency_key)"
+                        )
+                    else:
+                        # 旧的单列唯一键，替换为复合唯一键
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_redemption_records DROP INDEX uk_redemption_record_idempotency"
+                            )
+                        )
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE xy_redemption_records "
+                                "ADD UNIQUE KEY uk_redemption_record_idempotency "
+                                "(user_id, idempotency_key)"
+                            )
+                        )
+                        logger.info(
+                            "✓ xy_redemption_records: uk_redemption_record_idempotency 由 (idempotency_key) 迁移为 (user_id, idempotency_key)"
+                        )
+                else:
+                    # 索引不存在：直接创建复合唯一键
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_redemption_records "
+                            "ADD UNIQUE KEY uk_redemption_record_idempotency "
+                            "(user_id, idempotency_key)"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_redemption_records: 创建 uk_redemption_record_idempotency (user_id, idempotency_key)"
+                    )
+            except Exception as e:
+                logger.warning(f"✗ xy_redemption_records 幂等键唯一键迁移失败: {e}")
 
             # 为 xy_keyword_rules 补建 (account_id, item_id) 复合索引
             try:

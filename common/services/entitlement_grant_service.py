@@ -8,8 +8,9 @@
 - 套餐：同套餐续期顺延、升级立即生效不补差价、降级写入 pending 待到期生效；
   季卡兑换只发当月额度，后续由调度按月发放；企业版转为无限权益且不创建次数 grant。
 - 加量包：普通包创建次数 grant；无限包创建 ai_unlimited=1 的 grant（30 天）。
-- 幂等：账本按 ``{idempotency_key}:ledger`` 去重；套餐当月额度按
-  ``sub-monthly:{user_id}:{period}`` 去重，避免同一自然月重复发放。
+- 幂等：账本按 ``ledger:{user_id}:{idempotency_key}`` 去重、加量包 grant 按
+  ``grant:{user_id}:{idempotency_key}`` 去重（均按用户隔离，避免跨用户命中）；
+  套餐当月额度按 ``sub-monthly:{user_id}:{period}`` 去重，避免同一自然月重复发放。
 """
 
 from __future__ import annotations
@@ -235,7 +236,7 @@ class EntitlementGrantService:
         # 加量包不影响套餐 package_quota，仅确保配置行存在
         await self._get_or_create_quota_config(user_id)
 
-        grant_key = f"{idempotency_key}:grant"
+        grant_key = f"grant:{user_id}:{idempotency_key}"
         grant = await self.session.scalar(
             select(AIQuotaGrant).where(AIQuotaGrant.idempotency_key == grant_key)
         )
@@ -454,7 +455,8 @@ class EntitlementGrantService:
         details: dict,
         source: dict,
     ) -> int | None:
-        ledger_key = f"{idempotency_key}:ledger"
+        # 幂等键按用户隔离：同一兑换幂等键在不同用户下不会互相命中账本。
+        ledger_key = f"ledger:{user_id}:{idempotency_key}"
         existing = await self.session.scalar(
             select(EntitlementLedger).where(
                 EntitlementLedger.idempotency_key == ledger_key
@@ -462,6 +464,13 @@ class EntitlementGrantService:
         )
         if existing:
             return existing.id
+        # 权益流水保留可追溯来源：兑换码 ID / 批次 ID 写入 details，
+        # 便于从权益流水反查到具体兑换码与批次（不写入完整明文兑换码）。
+        traceable = dict(details)
+        if source.get("code_id") is not None:
+            traceable["code_id"] = source["code_id"]
+        if source.get("batch_id") is not None:
+            traceable["batch_id"] = source["batch_id"]
         ledger = EntitlementLedger(
             user_id=user_id,
             event_type=event_type,
@@ -470,7 +479,7 @@ class EntitlementGrantService:
             order_id=source.get("order_id"),
             grant_id=grant_id,
             idempotency_key=ledger_key,
-            details=details,
+            details=traceable,
         )
         self.session.add(ledger)
         await self.session.flush()

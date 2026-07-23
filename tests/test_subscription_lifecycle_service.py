@@ -184,9 +184,7 @@ class SubscriptionLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         session = FakeSession([subscription, user, quota])
         now = datetime(2026, 7, 18, 12, 0)
 
-        changed = await SubscriptionLifecycleService(session).expire_user_if_due(
-            7, now
-        )
+        changed = await SubscriptionLifecycleService(session).expire_user_if_due(7, now)
 
         self.assertTrue(changed)
         # 激活待生效降级套餐，而非降为免费
