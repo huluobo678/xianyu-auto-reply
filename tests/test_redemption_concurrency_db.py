@@ -126,6 +126,7 @@ class RealDbConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                         AIQuotaGrant,
                         EntitlementLedger,
                         UserSubscription,
+                        BillingPlan,
                         User,
                     ):
                         await session.execute(delete(model))
@@ -135,7 +136,7 @@ class RealDbConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def _seed_plan_and_batch(self, session) -> str:
         """种子一个套餐目录行 + 一个兑换码批次，返回明文兑换码。"""
         plan = BillingPlan(
-            code="standard-tdb",
+            code="standard",
             name="standard-test",
             account_limit=3,
             monthly_ai_quota=1000,
@@ -150,7 +151,7 @@ class RealDbConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         result = await RedemptionService(session).create_batch(
             admin_id=1,
             product_type="plan",
-            product_code="standard-tdb",
+            product_code="standard",
             cycle_or_validity="monthly",
             count=1,
             now=datetime(2026, 7, 1, 9, 0),
