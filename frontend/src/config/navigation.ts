@@ -87,6 +87,7 @@ export const mainNavItems: NavEntry[] = [
   },
   { key: 'accounts', icon: Users, label: '账号管理', path: '/accounts' },
   { key: 'billing', icon: BadgeDollarSign, label: '套餐与额度', path: '/billing' },
+  { key: 'redeem-store', icon: Store, label: '兑换商城', path: '/billing/store' },
   { key: 'online-chat-new', icon: MessageSquare, label: '在线聊天', path: '/online-chat-new' },
   { key: 'items', icon: Package, label: '商品管理', path: '/items' },
   { key: 'cards', icon: Ticket, label: '卡券管理', path: '/cards' },
@@ -164,6 +165,7 @@ export const adminNavItems: NavEntry[] = [
     ],
   },
   { key: 'admin-scheduled-tasks', icon: Timer, label: '定时任务', path: '/admin/scheduled-tasks', adminOnly: true },
+  { key: 'admin-redemption-batches', icon: Ticket, label: '兑换码批次', path: '/admin/redemption-batches', adminOnly: true },
   { key: 'admin-announcements', icon: Megaphone, label: '公告管理', path: '/admin/announcements', adminOnly: true },
   {
     key: 'admin-advertising',

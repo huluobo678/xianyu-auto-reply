@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.models.billing import AIQuotaPackage, BillingPlan
+from common.models.billing import AIQuotaPackage, BillingPlan, UserSubscription
 from common.models.redemption import (
     RedemptionBatch,
     RedemptionCode,
@@ -379,6 +379,65 @@ class RedemptionService:
             logger.warning(f"[redemption] failed to delete export file: {exc}")
 
     # ---------------- 核销 ----------------
+
+    async def preview_redeem(
+        self,
+        user_id: int,
+        code_plain: str,
+        now: datetime | None = None,
+    ) -> dict:
+        """只读预览兑换：判定动作（升级需前端二次确认），不消耗兑换码、不发放权益。
+
+        - 计算摘要并定位兑换码（无效码抛 RedemptionError，与核销一致，不回显完整码）；
+        - 校验未禁用/未过期/批次未禁用（advisory，最终以核销事务为准）；
+        - 仅对套餐码根据当前订阅判定动作；加量包动作固定为 package，无需确认；
+        - 返回 ``action`` / ``needs_confirmation`` / ``code_last4`` /
+          ``product_type`` / ``product_code``，不含完整码或摘要。
+        """
+        now = now or get_beijing_now_naive()
+        secret = await _resolve_secret(self.session)
+        digest = compute_code_digest(code_plain, secret)
+        code = await self.session.scalar(
+            select(RedemptionCode).where(RedemptionCode.code_digest == digest)
+        )
+        if not code:
+            raise RedemptionError("Invalid redemption code")
+        batch = await self.session.scalar(
+            select(RedemptionBatch).where(RedemptionBatch.id == code.batch_id)
+        )
+        if not batch or batch.disabled:
+            raise RedemptionError("Redemption batch is disabled")
+        if code.disabled:
+            raise RedemptionError("Redemption code is disabled")
+        if code.status != "unused":
+            raise RedemptionError("Redemption code already used")
+        if code.expires_at and code.expires_at <= now:
+            raise RedemptionError("Redemption code expired")
+
+        action = "package"
+        needs_confirmation = False
+        if batch.product_type == "plan":
+            subscription = await self.session.scalar(
+                select(UserSubscription).where(
+                    UserSubscription.user_id == user_id
+                )
+            )
+            action, _ = EntitlementGrantService._resolve_plan_action(
+                subscription, batch.product_code, now
+            )
+            needs_confirmation = action == "upgrade"
+        return {
+            "action": action,
+            "needs_confirmation": needs_confirmation,
+            "code_last4": code.code_last4,
+            "product_type": batch.product_type,
+            "product_code": batch.product_code,
+            "message": (
+                "旧套餐剩余时间将不折算、不退补，确认继续兑换吗？"
+                if needs_confirmation
+                else None
+            ),
+        }
 
     async def redeem(
         self,

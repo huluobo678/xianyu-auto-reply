@@ -64,6 +64,7 @@ from . import (
     refund_cancel,
     qr_login,
     qrcode,
+    redemption,
     risk_control_logs,
     account_login_logs,
     db_backup_logs,
@@ -122,6 +123,11 @@ api_router.include_router(ai.router, prefix="/ai-reply-settings", tags=["AI回�
 api_router.include_router(ai.test_router, tags=["AI回复测试"])  # ai.py已定义prefix="/ai-reply-test"
 api_router.include_router(billing.router)
 api_router.include_router(ai_usage.router)
+# 兑换码客户兑换入口；路由已定义 prefix="/redemption" → /api/v1/redemption/redeem
+api_router.include_router(redemption.router)
+# 兑换码管理员接口（批次/导出/禁用/审计），挂在 /admin 下；admin_router
+# 已定义 prefix="/redemption"，叠加 /admin → /api/v1/admin/redemption/*
+api_router.include_router(redemption.admin_router, prefix="/admin")
 
 # 消息和回复
 api_router.include_router(message.router, prefix="/messages", tags=["消息管理"])

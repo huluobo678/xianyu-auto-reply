@@ -45,6 +45,8 @@ const GoofishScheduledCrawler = React.lazy(() => import('@/pages/crawler/Goofish
 const Cards = React.lazy(() => import('@/pages/cards/Cards').then(m => ({ default: m.Cards })))
 const PersonalSettings = React.lazy(() => import('@/pages/personalSettings/PersonalSettings').then(m => ({ default: m.PersonalSettings })))
 const Billing = React.lazy(() => import('@/pages/billing/Billing').then(m => ({ default: m.Billing })))
+const RedeemStore = React.lazy(() => import('@/pages/billing/RedeemStore').then(m => ({ default: m.RedeemStore })))
+const Redeem = React.lazy(() => import('@/pages/billing/Redeem').then(m => ({ default: m.Redeem })))
 const Blacklist = React.lazy(() => import('@/pages/blacklist/Blacklist'))
 const SupplyManagement = React.lazy(() => import('@/pages/distribution/SupplyManagement').then(m => ({ default: m.SupplyManagement })))
 const DockedProducts = React.lazy(() => import('@/pages/distribution/DockedProducts').then(m => ({ default: m.DockedProducts })))
@@ -82,6 +84,7 @@ const AccountLoginLogs = React.lazy(() => import('@/pages/admin/AccountLoginLogs
 const DbBackupLogs = React.lazy(() => import('@/pages/admin/DbBackupLogs').then(m => ({ default: m.DbBackupLogs })))
 const DataManagement = React.lazy(() => import('@/pages/admin/DataManagement').then(m => ({ default: m.DataManagement })))
 const ScheduledTasks = React.lazy(() => import('@/pages/admin/ScheduledTasks').then(m => ({ default: m.ScheduledTasks })))
+const RedemptionBatches = React.lazy(() => import('@/pages/admin/RedemptionBatches').then(m => ({ default: m.RedemptionBatches })))
 const RedeliveryBatches = React.lazy(() => import('@/pages/redeliveryLogs/RedeliveryBatches').then(m => ({ default: m.RedeliveryBatches })))
 const RedeliveryBatchDetailPage = React.lazy(() => import('@/pages/redeliveryLogs/RedeliveryBatchDetail').then(m => ({ default: m.RedeliveryBatchDetailPage })))
 const RateBatches = React.lazy(() => import('@/pages/rateLogs/RateBatches').then(m => ({ default: m.RateBatches })))
@@ -377,6 +380,8 @@ function App() {
             <Route path="product-monitor/collect-fallback-accounts" element={<CollectFallbackAccount />} />
             <Route path="personal-settings" element={<PersonalSettings />} />
             <Route path="billing" element={<Billing />} />
+            <Route path="billing/store" element={<RedeemStore />} />
+            <Route path="billing/redeem" element={<Redeem />} />
             <Route path="blacklist" element={<Blacklist />} />
             <Route path="settings" element={<Settings />} />
             {/* 共享多人扫码登录管理端 */}
@@ -410,6 +415,7 @@ function App() {
             <Route path="admin/red-flower-batches" element={<RedFlowerBatches />} />
             <Route path="admin/red-flower-batches/:batchId" element={<RedFlowerBatchDetailPage />} />
             <Route path="admin/scheduled-tasks" element={<ScheduledTasks />} />
+            <Route path="admin/redemption-batches" element={<RedemptionBatches />} />
             <Route path="admin/announcements" element={<Announcements />} />
             <Route path="admin/ad-manage" element={<AdManage />} />
             <Route path="admin/popup-announcements" element={<PopupAnnouncements />} />

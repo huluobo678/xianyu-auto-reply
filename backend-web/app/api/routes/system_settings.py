@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from app.api import deps
@@ -19,7 +19,7 @@ from app.core.http_client import get_http_client
 from common.models.user import User, UserRole
 from common.schemas.common import ApiResponse
 from common.schemas.system_setting import SystemSettingUpdate
-from app.services.system_setting_service import SENSITIVE_KEYS, SystemSettingService
+from app.services.system_setting_service import SystemSettingService
 from common.utils.logging_utils import update_log_retention
 from common.utils.browser_utils import is_frozen
 
@@ -48,6 +48,51 @@ NON_ADMIN_ALLOWED_KEYS = {
     "runtime.is_exe_mode",
     # 普通用户需读取续期单价以在个人设置中计算续期总价
     "user.renew_month_price",
+    # 兑换码商城地址：登录用户可读取（用于商城 iframe 嵌入），未登录不可读
+    "redemption_store_url",
+}
+
+
+# 兑换码商城地址允许的协议与 host（严格白名单，拒绝任意域名绕过）
+_REDEMPTION_STORE_ALLOWED_HOST = "pay.ldxp.cn"
+
+
+def _validate_redemption_store_url(raw_value: str) -> str | None:
+    """校验 redemption_store_url：必须 https 且 host 严格等于 pay.ldxp.cn。
+
+    返回 None 表示校验通过，返回字符串表示错误提示。
+    """
+    from urllib.parse import urlsplit
+
+    value = str(raw_value or "").strip()
+    if not value:
+        return "兑换码商城地址不能为空"
+    parts = urlsplit(value)
+    if parts.scheme != "https":
+        return "兑换码商城地址必须使用 https"
+    host = (parts.hostname or "").lower()
+    if host != _REDEMPTION_STORE_ALLOWED_HOST:
+        return "兑换码商城地址只允许 pay.ldxp.cn"
+    # 拒绝用户信息 / 显式端口 / 查询串中夹带任意域名的绕过形态：
+    # 合法商城地址无端口、无 userinfo；显式端口（如 pay.ldxp.cn:8080）
+    # 即便 host 仍为 pay.ldxp.cn 也拒绝，避免端口绕过。
+    if parts.username or parts.password:
+        return "兑换码商城地址格式不合法"
+    if parts.port is not None:
+        return "兑换码商城地址不允许指定端口"
+    return None
+
+
+# 仅供管理员切换的敏感系统设置键：普通用户即使绕过前端也无法修改
+_ADMIN_ONLY_KEYS = {
+    "alipay.enabled",
+    "alipay.app_id",
+    "alipay.private_key",
+    "alipay.alipay_public_key",
+    "alipay.gateway_url",
+    "alipay.notify_url",
+    "alipay.billing_notify_url",
+    "alipay.seller_id",
 }
 
 
@@ -203,6 +248,19 @@ async def update_system_setting(
 ) -> ApiResponse:
     if key == "admin_password_hash":
         return ApiResponse(success=False, message="该设置需要使用专用接口修改")
+
+    # 支付宝总开关等敏感键仅允许管理员切换；路由本身已由 get_current_admin_user
+    # 保护，此处再显式拒绝以防未来误开放普通用户写入入口。
+    if key in _ADMIN_ONLY_KEYS and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可修改该设置")
+    # alipay.enabled 仅管理员可切换（默认 false）；普通用户无法到达此处。
+    # 不写入真实支付宝密钥，仅切换总开关。
+
+    # 兑换码商城地址写入校验：协议必须 https 且 host 严格等于 pay.ldxp.cn
+    if key == "redemption_store_url":
+        store_error = _validate_redemption_store_url(payload.value)
+        if store_error:
+            return ApiResponse(success=False, message=store_error)
 
     retention_days: int | None = None
     if key == LOG_RETENTION_KEY:

@@ -1,50 +1,12 @@
 /**
  * 支付相关API
- * 
- * 功能：
- * 1. 创建充值订单（当面付二维码）
- * 2. 查询充值订单状态
+ *
+ * 支付宝入口默认关闭：余额充值（createRecharge / getRechargeStatus）已停用，
+ * 第一版改为兑换码购买。提现与结算记录接口保留。
  */
 import { post, get } from '@/utils/request'
 
 const PAYMENT_PREFIX = '/api/v1/payment'
-
-/** 充值订单响应数据 */
-export interface RechargeData {
-  order_id: number
-  order_no: string
-  amount: string
-  qr_code: string
-}
-
-/** 充值订单状态 */
-export interface RechargeStatus {
-  order_id: number
-  order_no: string
-  amount: string
-  status: 'pending' | 'paid' | 'expired' | 'failed'
-  trade_no?: string
-  paid_at?: string
-  created_at?: string
-}
-
-/** 创建充值订单 */
-export const createRecharge = async (amount: string): Promise<{
-  success: boolean
-  message?: string
-  data?: RechargeData
-}> => {
-  return post(`${PAYMENT_PREFIX}/recharge`, { amount })
-}
-
-/** 查询充值订单状态 */
-export const getRechargeStatus = async (orderNo: string): Promise<{
-  success: boolean
-  message?: string
-  data?: RechargeStatus
-}> => {
-  return get(`${PAYMENT_PREFIX}/recharge/${orderNo}`)
-}
 
 export interface SettlementRecord {
   id: number

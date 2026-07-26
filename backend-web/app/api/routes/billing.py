@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
+from app.services.alipay_guard import AlipayDisabledError, require_alipay_enabled
 from app.services.billing_payment_service import (
     BillingPaymentError,
     BillingPaymentNotConfigured,
@@ -16,6 +17,9 @@ from common.services.subscription_feature_service import SubscriptionFeatureServ
 from common.utils.time_utils import safe_isoformat
 
 router = APIRouter(prefix='/billing', tags=['billing'])
+
+# 支付宝入口被 alipay.enabled=false 关闭时统一返回的提示
+_ALIPAY_DISABLED_MESSAGE = '支付未开通，请前往兑换码商城购买兑换码'
 
 
 class CreateBillingOrderRequest(BaseModel):
@@ -38,6 +42,11 @@ async def get_payment_readiness(
     _: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    # 支付宝入口默认关闭：不报告支付就绪，直接返回未开通
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     ready = await BillingPaymentService(session).payment_ready()
     return ApiResponse(success=True, data={'payment_ready': ready})
 
@@ -57,6 +66,11 @@ async def create_billing_order(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    # 支付宝入口默认关闭：不再创建支付宝套餐订单，引导用户走兑换码
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         order, duplicate = await BillingService(session).create_order(
             current_user.id, payload.product_type,
@@ -77,6 +91,11 @@ async def create_order_payment(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    # 支付宝入口默认关闭：不调用支付宝 SDK、不创建真实支付二维码
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=_ALIPAY_DISABLED_MESSAGE) from exc
     service = BillingPaymentService(session)
     try:
         data = await service.create_alipay_payment(current_user.id, order_no)
@@ -93,6 +112,11 @@ async def get_billing_order(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
+    # 支付宝入口默认关闭：不再查询支付宝订单状态
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     payment_service = BillingPaymentService(session)
     order = await payment_service.get_order(current_user.id, order_no)
     if not order:
@@ -111,5 +135,10 @@ async def billing_alipay_notify(request: Request) -> PlainTextResponse:
     form_data = await request.form()
     notify_data = {key: value for key, value in form_data.items()}
     async with async_session_maker() as session:
+        # 支付宝入口默认关闭：不验签、不修改订单/权益状态，直接返回未开通
+        try:
+            await require_alipay_enabled(session)
+        except AlipayDisabledError:
+            return PlainTextResponse('failure', status_code=503)
         ok = await BillingPaymentService(session).handle_alipay_notify(notify_data)
     return PlainTextResponse('success' if ok else 'failure')

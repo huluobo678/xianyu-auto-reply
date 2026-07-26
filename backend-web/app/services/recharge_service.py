@@ -116,6 +116,15 @@ class RechargeService:
     ) -> bool:
         """处理支付宝异步通知
 
+        R1 并发安全修复：
+        - ``SELECT ... FOR UPDATE`` 锁定 ``RechargeOrder`` 行，并发重复通知只能
+          有一个进入入账流程；另一个等待行锁后看到 ``status='paid'`` 幂等返回；
+        - 锁定后校验 ``seller_id`` 与 ``total_amount == order.amount``，金额或
+          卖家不匹配直接拒绝，不入账；
+        - 订单状态更新与余额入账、资金流水写入处于同一事务（同一会话的单次
+          ``commit``），保证订单/余额/流水一致，不出现部分入账；
+        - 不输出或记录支付密钥。
+
         Args:
             notify_data: 支付宝通知数据
 
@@ -140,8 +149,12 @@ class RechargeService:
             logger.error(f"支付宝通知验签失败: {out_trade_no}")
             return False
 
-        # 查询充值订单
-        stmt = select(RechargeOrder).where(RechargeOrder.order_no == out_trade_no)
+        # 行锁锁定充值订单：并发重复通知只能有一个进入入账
+        stmt = (
+            select(RechargeOrder)
+            .where(RechargeOrder.order_no == out_trade_no)
+            .with_for_update()
+        )
         result = await self.session.execute(stmt)
         order = result.scalar_one_or_none()
 
@@ -149,17 +162,44 @@ class RechargeService:
             logger.error(f"充值订单不存在: {out_trade_no}")
             return False
 
-        # 已处理过则直接返回成功
+        # 已处理过则幂等返回成功（行锁下二次到达必看到最新状态，不重复入账）
         if order.status == 'paid':
             logger.info(f"充值订单已处理过: {out_trade_no}")
             return True
 
-        # 判断交易状态
+        # 判断交易状态（非成功状态不消耗订单、不入账）
         if not AlipayService.is_trade_success(trade_status):
             logger.info(f"交易状态非成功: {trade_status}")
             return True
 
-        # 充值成功，更新余额和插入流水（加锁）
+        # 锁定订单后校验 seller_id：与系统配置的收款商户一致，不匹配则拒绝
+        seller_id = str(notify_data.get('seller_id') or '')
+        expected_seller = str(config.get('seller_id') or '')
+        if not seller_id or not expected_seller or seller_id != expected_seller:
+            logger.error(
+                f"支付宝通知 seller_id 不匹配: 订单号={out_trade_no}"
+            )
+            return False
+
+        # 锁定订单后校验 total_amount == order.amount：金额篡改直接拒绝
+        try:
+            paid_amount = Decimal(str(notify_data.get('total_amount'))).quantize(
+                Decimal('0.01')
+            )
+        except (InvalidOperation, TypeError, ValueError):
+            logger.error(
+                f"支付宝通知金额格式错误: 订单号={out_trade_no}"
+            )
+            return False
+        expected_amount = Decimal(order.amount).quantize(Decimal('0.01'))
+        if paid_amount != expected_amount:
+            logger.error(
+                f"支付宝通知金额不匹配: 订单号={out_trade_no}, "
+                f"期望={expected_amount}, 实际={paid_amount}"
+            )
+            return False
+
+        # 充值成功，更新余额和插入流水（加锁）；状态更新与余额入账同事务
         await self._process_recharge_success(order, trade_no)
         return True
 

@@ -10,18 +10,22 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
+from app.services.alipay_guard import AlipayDisabledError, require_alipay_enabled
 from app.services.recharge_service import RechargeService
 from app.services.settlement_service import SettlementService
 from common.models.user import User
 from common.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/payment", tags=["支付管理"])
+
+# 支付宝入口被 alipay.enabled=false 关闭时统一返回的提示
+_ALIPAY_DISABLED_MESSAGE = '支付未开通，请前往兑换码商城购买兑换码'
 
 
 class RechargeRequest(BaseModel):
@@ -40,7 +44,15 @@ async def create_recharge(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> Dict[str, Any]:
-    """创建充值订单，返回支付宝当面付二维码"""
+    """创建充值订单，返回支付宝当面付二维码
+
+    支付宝入口默认由 alipay.enabled=false 关闭：不调用支付宝 SDK、不创建真实
+    充值订单，返回 503 未开通，引导用户走兑换码商城。
+    """
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     service = RechargeService(session)
     result = await service.create_recharge_order(current_user.id, payload.amount)
     return result
@@ -62,6 +74,11 @@ async def alipay_notify(
 
     # 使用独立会话处理回调（回调无用户上下文）
     async with async_session_maker() as session:
+        # 支付宝入口默认关闭：不验签、不入账，直接返回未开通
+        try:
+            await require_alipay_enabled(session)
+        except AlipayDisabledError:
+            return PlainTextResponse("failure", status_code=503)
         service = RechargeService(session)
         ok = await service.handle_alipay_notify(notify_data)
 
@@ -76,7 +93,14 @@ async def get_recharge_status(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> Dict[str, Any]:
-    """查询充值订单状态"""
+    """查询充值订单状态
+
+    支付宝入口默认关闭：不查询支付宝充值订单状态，返回 503 未开通。
+    """
+    try:
+        await require_alipay_enabled(session)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     service = RechargeService(session)
     result = await service.get_order_status(order_no, current_user.id)
     if not result:

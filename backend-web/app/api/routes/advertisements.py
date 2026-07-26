@@ -8,11 +8,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 
-from fastapi import APIRouter, Depends, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from common.models.user_setting import UserSetting
 from common.schemas.common import ApiResponse
 from common.utils.text_utils import escape_xss
 from app.services.alipay_service import AlipayService
+from app.services.alipay_guard import AlipayDisabledError, require_alipay_enabled
 from app.services.remote_content_service import (
     fetch_remote_public_ads,
     is_remote_fetch_request,
@@ -466,7 +467,16 @@ async def create_ad_payment(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """创建广告付款订单，生成支付宝二维码"""
+    """创建广告付款订单，生成支付宝二维码
+
+    支付宝入口默认由 alipay.enabled=false 关闭：广告付款改为管理员人工审核，
+    不调用支付宝 SDK、不创建真实付款订单，返回 503 未开通。
+    """
+    # 支付宝入口默认关闭：广告 unpaid -> approved 必须由管理员人工审核
+    try:
+        await require_alipay_enabled(db)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     result = await db.execute(
         select(Advertisement).where(
             Advertisement.id == ad_id,
@@ -540,8 +550,18 @@ async def ad_payment_notify(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """前端轮询确认广告付款状态，如果支付宝已付款则完成广告付款流程"""
+    """前端轮询确认广告付款状态，如果支付宝已付款则完成广告付款流程
+
+    支付宝入口默认关闭：广告不再通过支付自动审核，状态 unpaid -> approved 必须
+    由管理员人工审核；此处直接返回未开通，不修改广告状态、不入账。
+    """
     from common.models.recharge_order import RechargeOrder
+
+    # 支付宝入口默认关闭：不轮询/不自动审核
+    try:
+        await require_alipay_enabled(db)
+    except AlipayDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     # 查询广告
     result = await db.execute(

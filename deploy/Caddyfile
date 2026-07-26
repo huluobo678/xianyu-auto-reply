@@ -14,6 +14,9 @@
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		# 兑换码商城 iframe 仅允许内嵌本站与链动小铺 pay.ldxp.cn；
+		# 不放开 script-src / connect-src 等其它策略，也不引入支付宝域名。
+		Content-Security-Policy "frame-src 'self' https://pay.ldxp.cn"
 		-Server
 	}
 

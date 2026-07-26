@@ -83,6 +83,15 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
     "alipay.notify_url": ("", "余额充值支付宝异步通知地址"),
     "alipay.billing_notify_url": ("", "套餐支付支付宝异步通知地址"),
     "alipay.seller_id": ("", "支付宝收款商户 seller_id"),
+    # 支付宝总开关：默认关闭。第一版收费改为兑换码 + 链动小铺，支付宝入口
+    # （套餐支付 / 余额充值 / 广告付款及回调）默认不发起真实支付，仅保留代码以便将来重启。
+    "alipay.enabled": ("false", "支付宝总开关（true/false），默认关闭，仅管理员可修改"),
+    # 兑换码商城地址：链动小铺 iframe 嵌入来源，由系统设置统一读取，不在前端硬编码。
+    # 写入时严格校验协议为 https 且 host 严格等于 pay.ldxp.cn，拒绝任意域名绕过。
+    "redemption_store_url": (
+        "https://pay.ldxp.cn/shop/5LWTNV9V",
+        "兑换码商城地址（链动小铺），仅允许 https://pay.ldxp.cn",
+    ),
 }
 
 # 不需要XSS转义的键（布尔值、数字等）
@@ -113,6 +122,10 @@ NO_ESCAPE_KEYS = {
     "alipay.alipay_public_key",
     "alipay.gateway_url",
     "alipay.notify_url",
+    # 支付宝总开关为布尔字符串，无需 XSS 转义
+    "alipay.enabled",
+    # 兑换码商城地址为 URL，含 :// 等字符，不能被 XSS 转义
+    "redemption_store_url",
     "ad_price.carousel",
     "ad_price.text",
     "withdraw.notify_email",
