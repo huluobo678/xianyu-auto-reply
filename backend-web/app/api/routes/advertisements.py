@@ -5,6 +5,7 @@
 1. 广告管理（管理员）：查看所有广告、复核、删除
 2. 广告申请（所有用户）：新建、修改、删除自己的广告
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_current_active_user, get_current_admin_user, get_db_session
+from app.api.deps import (
+    get_current_user,
+    get_current_active_user,
+    get_current_admin_user,
+    get_db_session,
+)
 from common.models.user import User, UserRole
 from common.models.advertisement import Advertisement, AdType, AdStatus
 from common.models.system_setting import SystemSetting
@@ -33,17 +39,19 @@ from app.services.remote_content_service import (
 
 from common.utils.time_utils import safe_isoformat
 from common.utils.pagination import execute_paginated_with_filters
+
 logger = logging.getLogger(__name__)
 
 # 广告价格在系统设置中的 key 前缀
-AD_PRICE_KEY_PREFIX = 'ad_price.'
+AD_PRICE_KEY_PREFIX = "ad_price."
 # 余额在 user_settings 中的 key
-BALANCE_KEY = 'balance'
+BALANCE_KEY = "balance"
 
 router = APIRouter(tags=["advertisements"])
 
 
 # ==================== 公开接口（仪表盘展示） ====================
+
 
 @router.get("/public", response_model=ApiResponse)
 async def get_public_ads(
@@ -60,10 +68,15 @@ async def get_public_ads(
     today = date.today()
 
     # 查询已复核且未过期的本地广告
-    query = select(Advertisement).where(
-        Advertisement.status == AdStatus.APPROVED,
-        (Advertisement.expire_date >= today) | (Advertisement.expire_date.is_(None))
-    ).order_by(desc(Advertisement.created_at))
+    query = (
+        select(Advertisement)
+        .where(
+            Advertisement.status == AdStatus.APPROVED,
+            (Advertisement.expire_date >= today)
+            | (Advertisement.expire_date.is_(None)),
+        )
+        .order_by(desc(Advertisement.created_at))
+    )
 
     result = await db.execute(query)
     ads = result.scalars().all()
@@ -94,7 +107,7 @@ async def get_public_ads(
         data={
             "carousel": carousel_ads,
             "text": text_ads,
-        }
+        },
     )
 
 
@@ -141,6 +154,7 @@ async def get_ad_prices(
 
 # ==================== 广告管理（管理员） ====================
 
+
 @router.get("/admin", response_model=ApiResponse)
 async def get_all_ads(
     page: int = Query(1, ge=1),
@@ -164,10 +178,12 @@ async def get_all_ads(
             pass
 
     ads, total = await execute_paginated_with_filters(
-        db, Advertisement,
+        db,
+        Advertisement,
         filters=filters,
         order_by=[desc(Advertisement.created_at)],
-        page=page, page_size=page_size,
+        page=page,
+        page_size=page_size,
     )
 
     return ApiResponse(
@@ -177,7 +193,7 @@ async def get_all_ads(
             "total": total,
             "page": page,
             "page_size": page_size,
-        }
+        },
     )
 
 
@@ -190,13 +206,13 @@ async def approve_ad(
     """复核广告（管理员）"""
     result = await db.execute(select(Advertisement).where(Advertisement.id == ad_id))
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在")
-    
+
     ad.status = AdStatus.APPROVED
     await db.commit()
-    
+
     return ApiResponse(success=True, message="复核成功")
 
 
@@ -209,13 +225,13 @@ async def reject_ad(
     """取消复核（管理员）"""
     result = await db.execute(select(Advertisement).where(Advertisement.id == ad_id))
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在")
-    
+
     ad.status = AdStatus.PENDING
     await db.commit()
-    
+
     return ApiResponse(success=True, message="已取消复核")
 
 
@@ -228,13 +244,13 @@ async def delete_ad_admin(
     """删除广告（管理员）"""
     result = await db.execute(select(Advertisement).where(Advertisement.id == ad_id))
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在")
-    
+
     await db.delete(ad)
     await db.commit()
-    
+
     return ApiResponse(success=True, message="删除成功")
 
 
@@ -254,16 +270,16 @@ async def update_ad_admin(
     """修改广告（管理员），对内容进行XSS转义"""
     result = await db.execute(select(Advertisement).where(Advertisement.id == ad_id))
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在")
-    
+
     # XSS转义
     ad.title = escape_xss(title)
     ad.content = escape_xss(content)
     ad.link = link  # 链接不转义，但前端渲染时需注意
     ad.image_url = image_url
-    
+
     if expire_date:
         try:
             ad.expire_date = date.fromisoformat(expire_date)
@@ -271,24 +287,25 @@ async def update_ad_admin(
             return ApiResponse(success=False, message="日期格式错误")
     else:
         ad.expire_date = None
-    
+
     try:
         ad.ad_type = AdType(ad_type)
     except ValueError:
         return ApiResponse(success=False, message="无效的广告类型")
-    
+
     if status:
         try:
             ad.status = AdStatus(status)
         except ValueError:
             pass
-    
+
     await db.commit()
-    
+
     return ApiResponse(success=True, message="修改成功")
 
 
 # ==================== 广告申请（所有用户） ====================
+
 
 @router.get("", response_model=ApiResponse)
 async def get_my_ads(
@@ -299,10 +316,12 @@ async def get_my_ads(
 ):
     """获取我的广告列表"""
     ads, total = await execute_paginated_with_filters(
-        db, Advertisement,
+        db,
+        Advertisement,
         filters=[Advertisement.user_id == current_user.id],
         order_by=[desc(Advertisement.created_at)],
-        page=page, page_size=page_size,
+        page=page,
+        page_size=page_size,
     )
 
     return ApiResponse(
@@ -312,7 +331,7 @@ async def get_my_ads(
             "total": total,
             "page": page,
             "page_size": page_size,
-        }
+        },
     )
 
 
@@ -339,7 +358,9 @@ async def create_ad(
     # 从系统设置获取单月价格
     unit_price_str = await _get_ad_price(db, ad_type)
     if not unit_price_str:
-        return ApiResponse(success=False, message="该广告类型尚未配置价格，请联系管理员")
+        return ApiResponse(
+            success=False, message="该广告类型尚未配置价格，请联系管理员"
+        )
 
     try:
         unit_price = Decimal(unit_price_str)
@@ -367,7 +388,15 @@ async def create_ad(
     await db.commit()
     await db.refresh(ad)
 
-    return ApiResponse(success=True, message="提交成功", data={"id": ad.id, "total_amount": str(total_amount), "expire_date": exp_date.isoformat()})
+    return ApiResponse(
+        success=True,
+        message="提交成功",
+        data={
+            "id": ad.id,
+            "total_amount": str(total_amount),
+            "expire_date": exp_date.isoformat(),
+        },
+    )
 
 
 @router.put("/{ad_id}", response_model=ApiResponse)
@@ -385,15 +414,14 @@ async def update_my_ad(
     """修改我的广告（已复核的广告禁止修改），对内容进行XSS转义"""
     result = await db.execute(
         select(Advertisement).where(
-            Advertisement.id == ad_id,
-            Advertisement.user_id == current_user.id
+            Advertisement.id == ad_id, Advertisement.user_id == current_user.id
         )
     )
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在或无权修改")
-    
+
     # 已复核的广告禁止修改
     if ad.status == AdStatus.APPROVED:
         return ApiResponse(success=False, message="已复核的广告禁止修改")
@@ -409,7 +437,9 @@ async def update_my_ad(
     # 从系统设置获取单月价格
     unit_price_str = await _get_ad_price(db, ad_type)
     if not unit_price_str:
-        return ApiResponse(success=False, message="该广告类型尚未配置价格，请联系管理员")
+        return ApiResponse(
+            success=False, message="该广告类型尚未配置价格，请联系管理员"
+        )
 
     try:
         unit_price = Decimal(unit_price_str)
@@ -429,9 +459,9 @@ async def update_my_ad(
     ad.total_amount = str(total_amount)
     ad.expire_date = exp_date
     ad.status = AdStatus.UNPAID  # 修改后重新待付款
-    
+
     await db.commit()
-    
+
     return ApiResponse(success=True, message="修改成功")
 
 
@@ -444,22 +474,22 @@ async def delete_my_ad(
     """删除我的广告"""
     result = await db.execute(
         select(Advertisement).where(
-            Advertisement.id == ad_id,
-            Advertisement.user_id == current_user.id
+            Advertisement.id == ad_id, Advertisement.user_id == current_user.id
         )
     )
     ad = result.scalar_one_or_none()
-    
+
     if not ad:
         return ApiResponse(success=False, message="广告不存在或无权删除")
-    
+
     await db.delete(ad)
     await db.commit()
-    
+
     return ApiResponse(success=True, message="删除成功")
 
 
 # ==================== 广告付款 ====================
+
 
 @router.post("/{ad_id}/pay", response_model=ApiResponse)
 async def create_ad_payment(
@@ -479,8 +509,7 @@ async def create_ad_payment(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     result = await db.execute(
         select(Advertisement).where(
-            Advertisement.id == ad_id,
-            Advertisement.user_id == current_user.id
+            Advertisement.id == ad_id, Advertisement.user_id == current_user.id
         )
     )
     ad = result.scalar_one_or_none()
@@ -508,26 +537,31 @@ async def create_ad_payment(
     order_no = AlipayService.generate_order_no()
 
     order_data = {
-        'out_trade_no': order_no,
-        'total_amount': amount,
-        'subject': f'广告申请付款 - {ad.title}',
-        'body': f'广告申请付款 ID:{ad.id}',
-        'timeout_express': '30m',
+        "out_trade_no": order_no,
+        "total_amount": amount,
+        "subject": f"广告申请付款 - {ad.title}",
+        "body": f"广告申请付款 ID:{ad.id}",
+        "timeout_express": "30m",
     }
     pay_result = alipay.create_f2f_pay(order_data)
 
-    if not pay_result or not pay_result.get('success'):
-        error_msg = pay_result.get('error', '生成支付二维码失败') if pay_result else '生成支付二维码失败'
+    if not pay_result or not pay_result.get("success"):
+        error_msg = (
+            pay_result.get("error", "生成支付二维码失败")
+            if pay_result
+            else "生成支付二维码失败"
+        )
         return ApiResponse(success=False, message=error_msg)
 
     # 保存充值订单（复用 recharge_orders 表）
     from common.models.recharge_order import RechargeOrder
+
     order = RechargeOrder(
         order_no=order_no,
         user_id=current_user.id,
         amount=amount,
-        status='pending',
-        qr_code=pay_result['qr_code'],
+        status="pending",
+        qr_code=pay_result["qr_code"],
     )
     db.add(order)
     await db.commit()
@@ -535,11 +569,11 @@ async def create_ad_payment(
     return ApiResponse(
         success=True,
         data={
-            'order_no': order_no,
-            'amount': amount,
-            'qr_code': pay_result['qr_code'],
-            'ad_id': ad.id,
-        }
+            "order_no": order_no,
+            "amount": amount,
+            "qr_code": pay_result["qr_code"],
+            "ad_id": ad.id,
+        },
     )
 
 
@@ -566,8 +600,7 @@ async def ad_payment_notify(
     # 查询广告
     result = await db.execute(
         select(Advertisement).where(
-            Advertisement.id == ad_id,
-            Advertisement.user_id == current_user.id
+            Advertisement.id == ad_id, Advertisement.user_id == current_user.id
         )
     )
     ad = result.scalar_one_or_none()
@@ -581,19 +614,18 @@ async def ad_payment_notify(
     # 查询充值订单状态
     order_result = await db.execute(
         select(RechargeOrder).where(
-            RechargeOrder.order_no == order_no,
-            RechargeOrder.user_id == current_user.id
+            RechargeOrder.order_no == order_no, RechargeOrder.user_id == current_user.id
         )
     )
     order = order_result.scalar_one_or_none()
     if not order:
         return ApiResponse(success=True, data={"status": "pending"})
 
-    if order.status != 'paid':
+    if order.status != "paid":
         return ApiResponse(success=True, data={"status": "pending"})
 
     # 支付已完成 -> 完成广告付款流程
-    amount = Decimal(ad.total_amount or '0')
+    amount = Decimal(ad.total_amount or "0")
 
     # 1. 广告状态变为已复核
     ad.status = AdStatus.APPROVED
@@ -614,7 +646,11 @@ async def ad_payment_notify(
             )
         )
         admin_balance_setting = admin_balance_result.scalar_one_or_none()
-        admin_balance_before = Decimal(admin_balance_setting.value or '0') if admin_balance_setting else Decimal('0')
+        admin_balance_before = (
+            Decimal(admin_balance_setting.value or "0")
+            if admin_balance_setting
+            else Decimal("0")
+        )
         admin_balance_after = admin_balance_before + amount
 
         if admin_balance_setting:
@@ -624,17 +660,17 @@ async def ad_payment_notify(
                 user_id=admin_user.id,
                 key=BALANCE_KEY,
                 value=str(admin_balance_after),
-                description='用户余额',
+                description="用户余额",
             )
             db.add(admin_balance_setting)
 
         admin_flow = FundFlow(
             user_id=admin_user.id,
-            type='income',
+            type="income",
             amount=str(amount),
             balance_before=str(admin_balance_before),
             balance_after=str(admin_balance_after),
-            description=f'广告申请收入（广告ID:{ad.id} 标题:{ad.title}）',
+            description=f"广告申请收入（广告ID:{ad.id} 标题:{ad.title}）",
         )
         db.add(admin_flow)
 
@@ -646,20 +682,26 @@ async def ad_payment_notify(
         )
     )
     user_balance_setting = user_balance_result.scalar_one_or_none()
-    user_balance_before = Decimal(user_balance_setting.value or '0') if user_balance_setting else Decimal('0')
+    user_balance_before = (
+        Decimal(user_balance_setting.value or "0")
+        if user_balance_setting
+        else Decimal("0")
+    )
     user_balance_after = user_balance_before  # 支付宝直接付款，不扣余额
 
     user_flow = FundFlow(
         user_id=current_user.id,
-        type='expense',
+        type="expense",
         amount=str(amount),
         balance_before=str(user_balance_before),
         balance_after=str(user_balance_after),
-        description=f'广告申请（广告ID:{ad.id} 标题:{ad.title}）',
+        description=f"广告申请（广告ID:{ad.id} 标题:{ad.title}）",
     )
     db.add(user_flow)
 
     await db.commit()
-    logger.info(f"广告付款完成: ad_id={ad.id}, user_id={current_user.id}, amount={amount}")
+    logger.info(
+        f"广告付款完成: ad_id={ad.id}, user_id={current_user.id}, amount={amount}"
+    )
 
     return ApiResponse(success=True, data={"status": "approved"})

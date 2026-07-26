@@ -76,6 +76,11 @@ class RedemptionModelMigrationTests(unittest.TestCase):
         cols = set(inspect(RedemptionBatch).columns.keys())
         self.assertIn("entitlement_snapshot", cols)
 
+    def test_redemption_batch_export_payload_field(self):
+        cols = set(inspect(RedemptionBatch).columns.keys())
+        self.assertIn("export_payload", cols)
+        self.assertTrue(RedemptionBatch.__table__.columns["export_payload"].nullable)
+
     def test_redemption_models_exported(self):
         from common.models import _exports
 

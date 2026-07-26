@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import sys
 import unittest
+from unittest.mock import patch
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from common.services.redemption_service import (  # noqa: E402
     compute_code_digest,
     reset_redemption_secret,
     set_redemption_secret,
-    _pending_exports,
+    _decrypt_export_payload,
 )
 
 _TEST_SECRET = "a" * 64
@@ -104,15 +105,13 @@ class AddOnlySession:
 class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         set_redemption_secret(_TEST_SECRET)
-        _pending_exports.clear()
 
     def tearDown(self):
         reset_redemption_secret()
-        _pending_exports.clear()
 
     async def test_codes_are_csprng_unique_and_unpredictable(self):
         session = AddOnlySession(plan=make_plan())
-        result = await RedemptionService(session).create_batch(
+        await RedemptionService(session).create_batch(
             admin_id=1,
             product_type="plan",
             product_code="standard",
@@ -121,7 +120,8 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
             expires_at=None,
             now=datetime(2026, 7, 1, 9, 0),
         )
-        codes = result.codes
+        batch = next(v for v in session.added if isinstance(v, RedemptionBatch))
+        codes = _decrypt_export_payload(batch.export_payload, _TEST_SECRET)
         self.assertEqual(len(codes), 50)
         alphabet = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         for code in codes:
@@ -134,7 +134,7 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_database_stores_only_digest_and_last4_not_plaintext(self):
         session = AddOnlySession(package=make_package())
-        result = await RedemptionService(session).create_batch(
+        await RedemptionService(session).create_batch(
             admin_id=1,
             product_type="ai_quota_package",
             product_code="ai_regular",
@@ -142,7 +142,8 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
             count=5,
             now=datetime(2026, 7, 1, 9, 0),
         )
-        codes = result.codes
+        batch = next(v for v in session.added if isinstance(v, RedemptionBatch))
+        codes = _decrypt_export_payload(batch.export_payload, _TEST_SECRET)
         code_rows = [c for c in session.added if isinstance(c, RedemptionCode)]
         self.assertEqual(len(code_rows), 5)
         for row, plain in zip(code_rows, codes):
@@ -192,11 +193,12 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
                 now=datetime(2026, 7, 1, 9, 0),
             )
             batch = next(v for v in session.added if isinstance(v, RedemptionBatch))
+            codes = _decrypt_export_payload(batch.export_payload, _TEST_SECRET)
             await RedemptionService(AddOnlySession(batch=batch)).export_batch_once(
                 result.batch_id
             )
             log_text = sink.getvalue()
-            for plain in result.codes:
+            for plain in codes:
                 self.assertNotIn(plain, log_text)
         finally:
             logger.remove(handle)
@@ -213,6 +215,7 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
         )
         batch = next(v for v in session.added if isinstance(v, RedemptionBatch))
         batch.exported_at = None
+        codes = _decrypt_export_payload(batch.export_payload, _TEST_SECRET)
 
         export_session = AddOnlySession(batch=batch)
         path = await RedemptionService(export_session).export_batch_once(
@@ -220,9 +223,9 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(Path(path).exists())
         content = Path(path).read_text(encoding="utf-8").splitlines()
-        self.assertEqual(sorted(content), sorted(result.codes))
+        self.assertEqual(sorted(content), sorted(codes))
         # 文件名含 secrets 随机串，不是明文兑换码
-        self.assertNotIn(result.codes[0], Path(path).name)
+        self.assertNotIn(codes[0], Path(path).name)
 
         # 第二次导出：exported_at 已设置 → 拒绝
         batch2 = AddOnlySession(batch=batch)
@@ -232,15 +235,30 @@ class RedemptionSecurityTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RedemptionError):
             await RedemptionService(batch2).export_batch_once(result.batch_id)
 
-        # 进程重启后（清除暂存载荷）即使 exported_at 被回退也无法导出
-        _pending_exports.pop(result.batch_id, None)
-        batch.exported_at = None
-        batch3 = AddOnlySession(batch=batch)
-        with self.assertRaises(RedemptionError):
-            await RedemptionService(batch3).export_batch_once(result.batch_id)
+        self.assertIsNone(batch.export_payload)
 
         RedemptionService.delete_export_file(path)
         self.assertFalse(Path(path).exists())
+
+    async def test_export_write_failure_preserves_retry_payload(self):
+        session = AddOnlySession(plan=make_plan())
+        result = await RedemptionService(session).create_batch(
+            admin_id=1,
+            product_type="plan",
+            product_code="standard",
+            cycle_or_validity="monthly",
+            count=2,
+            now=datetime(2026, 7, 1, 9, 0),
+        )
+        batch = next(v for v in session.added if isinstance(v, RedemptionBatch))
+        payload = batch.export_payload
+        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                await RedemptionService(AddOnlySession(batch=batch)).export_batch_once(
+                    result.batch_id
+                )
+        self.assertIsNone(batch.exported_at)
+        self.assertEqual(batch.export_payload, payload)
 
     async def test_yearly_plan_code_rejected(self):
         from common.services.redemption_service import RedemptionError

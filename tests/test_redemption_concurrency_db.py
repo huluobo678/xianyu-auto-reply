@@ -33,6 +33,8 @@ from __future__ import annotations
 import asyncio
 import sys
 import unittest
+
+from sqlalchemy import func, select
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +61,7 @@ try:
         RedemptionService,
         reset_redemption_secret,
         set_redemption_secret,
+        _decrypt_export_payload,
     )
     from common.utils.security import get_password_hash  # noqa: E402
 
@@ -156,7 +159,104 @@ class RealDbConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             count=1,
             now=datetime(2026, 7, 1, 9, 0),
         )
-        return result.codes[0]
+        batch = await session.scalar(
+            select(RedemptionBatch).where(RedemptionBatch.id == result.batch_id)
+        )
+        return _decrypt_export_payload(batch.export_payload, _TEST_SECRET)[0]
+
+    async def test_batch_create_persists_for_new_session(self):
+        async with async_session_maker() as session:
+            async with session.begin():
+                plan = BillingPlan(
+                    code="standard",
+                    name="standard-test",
+                    account_limit=3,
+                    monthly_ai_quota=1000,
+                    ai_unlimited=False,
+                    feature_flags=["ai_reply"],
+                    is_free=False,
+                    enabled=True,
+                    sort_order=10,
+                )
+                session.add(plan)
+                await session.flush()
+                result = await RedemptionService(session).create_batch(
+                    admin_id=1,
+                    product_type="plan",
+                    product_code="standard",
+                    cycle_or_validity="monthly",
+                    count=3,
+                    now=datetime(2026, 7, 1, 9, 0),
+                )
+                batch_id = result.batch_id
+
+        async with async_session_maker() as session:
+            batch = await session.scalar(
+                select(RedemptionBatch).where(RedemptionBatch.id == batch_id)
+            )
+            code_count = await session.scalar(
+                select(func.count())
+                .select_from(RedemptionCode)
+                .where(RedemptionCode.batch_id == batch_id)
+            )
+        self.assertIsNotNone(batch)
+        self.assertEqual(int(code_count or 0), 3)
+        self.assertIsNotNone(batch.export_payload)
+        self.assertIsNone(batch.exported_at)
+
+    async def test_concurrent_export_only_one_succeeds(self):
+        async with async_session_maker() as setup_session:
+            async with setup_session.begin():
+                plan = BillingPlan(
+                    code="standard",
+                    name="standard-test",
+                    account_limit=3,
+                    monthly_ai_quota=1000,
+                    ai_unlimited=False,
+                    feature_flags=["ai_reply"],
+                    is_free=False,
+                    enabled=True,
+                    sort_order=10,
+                )
+                setup_session.add(plan)
+                await setup_session.flush()
+                result = await RedemptionService(setup_session).create_batch(
+                    admin_id=1,
+                    product_type="plan",
+                    product_code="standard",
+                    cycle_or_validity="monthly",
+                    count=2,
+                    now=datetime(2026, 7, 1, 9, 0),
+                )
+                batch_id = result.batch_id
+
+        async def export_once():
+            async with async_session_maker() as session:
+                try:
+                    file_path = await RedemptionService(session).export_batch_once(
+                        batch_id
+                    )
+                    await session.commit()
+                    return file_path
+                except Exception as exc:
+                    await session.rollback()
+                    return exc
+
+        results = await asyncio.gather(export_once(), export_once())
+        paths = [value for value in results if isinstance(value, str)]
+        errors = [value for value in results if isinstance(value, Exception)]
+        self.assertEqual(len(paths), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RedemptionError)
+        try:
+            async with async_session_maker() as session:
+                batch = await session.scalar(
+                    select(RedemptionBatch).where(RedemptionBatch.id == batch_id)
+                )
+            self.assertIsNotNone(batch.exported_at)
+            self.assertIsNone(batch.export_payload)
+        finally:
+            RedemptionService.delete_export_file(paths[0])
 
     async def test_concurrent_same_code_only_one_succeeds(self):
         async with async_session_maker() as setup_session:

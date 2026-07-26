@@ -4,7 +4,7 @@
  * 功能：
  * 1. 创建兑换码批次（产品类型 plan/ai_quota_package；月卡/季卡/常用包/商家包/无限包；不允许年卡）；
  * 2. 设置数量与过期时间；
- * 3. 一次性导出完整兑换码（生成时返回一次；批次未导出可下载文件，仅成功一次）；
+ * 3. 一次性导出完整兑换码（创建响应不显示明文，仅导出成功一次）；
  * 4. 显示批次状态、生成数量与兑换统计；
  * 5. 禁用批次 / 禁用单码；
  * 6. 显示兑换审计（不显示完整兑换码，仅尾4位/ID/状态）。
@@ -18,7 +18,6 @@ import {
   disableCode,
   exportBatch,
   listBatches,
-  type CreateBatchResult,
   type RedemptionAuditRecord,
   type RedemptionBatch,
 } from '@/api/redemption'
@@ -49,7 +48,6 @@ export function RedemptionBatches() {
   const [batches, setBatches] = useState<RedemptionBatch[]>([])
   const [auditRecords, setAuditRecords] = useState<RedemptionAuditRecord[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [created, setCreated] = useState<CreateBatchResult | null>(null)
 
   // 创建表单
   const [productType, setProductType] = useState<ProductType>('plan')
@@ -92,8 +90,7 @@ export function RedemptionBatches() {
       const expires = expiresAt ? new Date(expiresAt).toISOString() : null
       const res = await createBatch({ ...payload, count, expires_at: expires })
       if (res.success && res.data) {
-        setCreated(res.data)
-        addToast({ type: 'success', message: '兑换码批次已生成，请立即保存完整兑换码（仅显示一次）' })
+        addToast({ type: 'success', message: '批次已创建，请立即执行一次性导出。' })
         void loadAll()
       } else {
         addToast({ type: 'error', message: res.message || '创建批次失败' })
@@ -122,7 +119,7 @@ export function RedemptionBatches() {
       a.click()
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
-      addToast({ type: 'success', message: '导出成功，请妥善保存完整兑换码' })
+      addToast({ type: 'success', message: '完整兑换码仅能导出一次，请立即妥善保存。' })
       void loadAll()
     } catch (error) {
       addToast({ type: 'error', message: getApiErrorMessage(error, '导出失败或已导出过（仅可导出一次）') })
@@ -221,25 +218,6 @@ export function RedemptionBatches() {
           <p className="text-xs text-slate-400">完整兑换码仅在生成时返回一次，请立即保存；导出文件也可下载一次。</p>
         </div>
       </div>
-
-      {/* 生成结果（一次性明文） */}
-      {created && (
-        <div className="vben-card border-emerald-200 dark:border-emerald-900">
-          <div className="vben-card-header flex-between">
-            <h2 className="vben-card-title">批次 {created.batch_no} 的完整兑换码（仅显示一次）</h2>
-            <button onClick={() => setCreated(null)} className="btn-ios-secondary">已保存，关闭</button>
-          </div>
-          <div className="vben-card-body">
-            <textarea readOnly rows={Math.min(12, created.codes.length)} value={created.codes.join('\n')} className="input-ios w-full font-mono text-xs" />
-            <button
-              onClick={() => void navigator.clipboard?.writeText(created.codes.join('\n'))}
-              className="btn-ios-secondary mt-2"
-            >
-              复制全部兑换码
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* 批次列表 */}
       <div className="vben-card flex flex-col" style={{ minHeight: '320px' }}>

@@ -12,6 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from common.db.base_class import Base
@@ -50,6 +51,11 @@ class RedemptionBatch(Base):
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # 一次性导出加密载荷（Fernet/AES-128-CBC+HMAC，密钥由 redemption.hmac_secret
+    # 经 HKDF 派生，失败关闭）。创建批次时写入加密后的完整兑换码；导出成功后
+    # 清空（NULL）。兑换码主记录只保存摘要与尾4位，明文永不以明文长期落库。
+    # exported_at 为空且 export_payload 非空 → 待导出；exported_at 非空 → 已导出。
+    export_payload: Mapped[str | None] = mapped_column(MEDIUMTEXT)
     disabled: Mapped[bool] = mapped_column(nullable=False, server_default="0")
     disable_reason: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)

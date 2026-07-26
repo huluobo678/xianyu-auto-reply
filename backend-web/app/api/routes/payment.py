@@ -6,6 +6,7 @@
 2. 支付宝异步通知回调（无需认证）
 3. 查询充值订单状态
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -25,16 +26,18 @@ from common.schemas.common import ApiResponse
 router = APIRouter(prefix="/payment", tags=["支付管理"])
 
 # 支付宝入口被 alipay.enabled=false 关闭时统一返回的提示
-_ALIPAY_DISABLED_MESSAGE = '支付未开通，请前往兑换码商城购买兑换码'
+_ALIPAY_DISABLED_MESSAGE = "支付未开通，请前往兑换码商城购买兑换码"
 
 
 class RechargeRequest(BaseModel):
     """充值请求"""
+
     amount: str = Field(..., description="充值金额，例如：10.00")
 
 
 class WithdrawRequest(BaseModel):
     """提现请求"""
+
     amount: str = Field(..., description="提现金额，例如：10.00")
 
 
@@ -138,17 +141,17 @@ async def review_withdraw(
     token: str = Query(..., description="审核令牌"),
 ):
     """审核提现申请（无需登录，通过令牌验证）
-    
+
     approve：直接通过审核，返回 JSON。
     reject：显示填写拒绝原因的 HTML 表单页面。
     """
     from fastapi.responses import HTMLResponse
     from app.services.settlement_service import verify_review_token
 
-    if action == 'approve':
+    if action == "approve":
         # 安全：GET 请求不直接变更审核状态，避免邮件预取/链接扫描器误触发通过审批。
         # 先校验令牌，再展示二次确认页面，由管理员点击按钮以 POST 方式真正执行通过。
-        if not verify_review_token(id, 'approve', token):
+        if not verify_review_token(id, "approve", token):
             html = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>错误</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:60px;color:#ef4444">
 <h2>无效的审核令牌</h2></body></html>"""
@@ -234,7 +237,7 @@ function doApprove() {{
         return HTMLResponse(content=html)
 
     # reject：先验证 token，再展示填写原因的表单
-    if not verify_review_token(id, 'reject', token):
+    if not verify_review_token(id, "reject", token):
         html = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>错误</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:60px;color:#ef4444">
 <h2>无效的审核令牌</h2></body></html>"""
@@ -336,10 +339,10 @@ async def do_approve_withdraw(request: Request):
     from fastapi.responses import JSONResponse
 
     form = await request.form()
-    record_id = int(form.get('id', 0))
-    token = str(form.get('token', ''))
+    record_id = int(form.get("id", 0))
+    token = str(form.get("token", ""))
 
-    result = await review_withdraw_record(record_id, 'approve', token)
+    result = await review_withdraw_record(record_id, "approve", token)
     return JSONResponse(content=result)
 
 
@@ -350,9 +353,9 @@ async def do_reject_withdraw(request: Request):
     from fastapi.responses import JSONResponse
 
     form = await request.form()
-    record_id = int(form.get('id', 0))
-    token = str(form.get('token', ''))
-    reject_reason = str(form.get('reject_reason', ''))
+    record_id = int(form.get("id", 0))
+    token = str(form.get("token", ""))
+    reject_reason = str(form.get("reject_reason", ""))
 
-    result = await review_withdraw_record(record_id, 'reject', token, reject_reason)
+    result = await review_withdraw_record(record_id, "reject", token, reject_reason)
     return JSONResponse(content=result)

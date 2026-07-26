@@ -14,7 +14,6 @@ import { useUIStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { PageLoading, ButtonLoading } from '@/components/common/Loading'
 import { ConfirmModal } from '@/components/common/ConfirmModal'
-import { RechargeModal } from './RechargeModal'
 import { FundFlowModal } from './FundFlowModal'
 import { RenewModal } from './RenewModal'
 
@@ -49,7 +48,6 @@ export function PersonalSettings() {
   const { isAuthenticated, token, _hasHydrated, user, clearAuth } = useAuthStore()
   const [loading, setLoading] = useState(true)
   const [balance, setBalance] = useState('')
-  const [showRecharge, setShowRecharge] = useState(false)
   const [expireAt, setExpireAt] = useState<string | null>(null)
   const [renewPrice, setRenewPrice] = useState('')
   const [showRenew, setShowRenew] = useState(false)
@@ -608,11 +606,12 @@ export function PersonalSettings() {
               结算记录
             </button>
             <button
-              onClick={() => setShowRecharge(true)}
-              className="btn-ios-primary text-sm"
+              type="button"
+              disabled
+              className="btn-ios-secondary text-sm cursor-not-allowed opacity-60"
+              title="第一版暂不开放余额充值"
             >
-              <Plus className="w-4 h-4" />
-              余额充值
+              余额充值暂未开放
             </button>
           </div>
         </div>
@@ -623,7 +622,7 @@ export function PersonalSettings() {
               <div className="text-2xl font-semibold text-amber-600 dark:text-amber-400">
                 ¥{balance || '0.00'}
               </div>
-              <p className="text-xs text-gray-500 mt-1">点击"余额充值"按钮可通过支付宝扫码充值</p>
+              <p className="text-xs text-gray-500 mt-1">第一版暂不开放余额充值，请前往兑换码商城购买套餐或 AI 加量包。</p>
             </div>
             <div>
               <label className="input-label">收款码</label>
@@ -1198,13 +1197,6 @@ export function PersonalSettings() {
       <FundFlowModal
         visible={showFundFlowModal}
         onClose={() => setShowFundFlowModal(false)}
-      />
-
-      {/* 充值弹窗 */}
-      <RechargeModal
-        visible={showRecharge}
-        onClose={() => setShowRecharge(false)}
-        onSuccess={loadSettings}
       />
 
       {/* 续期弹窗 */}

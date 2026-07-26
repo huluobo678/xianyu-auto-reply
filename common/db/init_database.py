@@ -1700,6 +1700,7 @@ class DatabaseInitializer:
                 used_count INT NOT NULL DEFAULT 0 COMMENT '已兑换数量',
                 expires_at DATETIME DEFAULT NULL COMMENT '批次过期时间',
                 exported_at DATETIME DEFAULT NULL COMMENT '一次性导出时间',
+                export_payload MEDIUMTEXT DEFAULT NULL COMMENT '一次性导出加密载荷，导出后清空',
                 disabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否禁用',
                 disable_reason VARCHAR(255) DEFAULT NULL COMMENT '禁用原因',
                 created_by BIGINT NOT NULL COMMENT '创建管理员ID',
@@ -1841,6 +1842,11 @@ class DatabaseInitializer:
                 "entitlement_snapshot",
                 "JSON DEFAULT NULL COMMENT '生成时冻结的完整权益快照，兑换时只依赖此快照'",
                 "ai_unlimited",
+            ),
+            (
+                "export_payload",
+                "MEDIUMTEXT DEFAULT NULL COMMENT '一次性导出加密载荷，导出后清空'",
+                "exported_at",
             ),
         ],
         "xy_listing_monitor_tasks": [
@@ -2666,6 +2672,33 @@ class DatabaseInitializer:
             except Exception as e:
                 logger.warning(
                     f"✗ xy_scheduled_api_cookie_renew_log status 字段迁移失败: {e}"
+                )
+
+            # xy_redemption_batches: 将一次性导出密文从 TEXT 升级为 MEDIUMTEXT，
+            # 兼容最大 10000 条兑换码批次；幂等执行，不影响已导出 NULL 或现有密文。
+            try:
+                check_export_payload_type = text("""
+                    SELECT DATA_TYPE FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'xy_redemption_batches'
+                    AND COLUMN_NAME = 'export_payload'
+                """)
+                result = await conn.execute(check_export_payload_type)
+                export_payload_type = result.scalar()
+                if export_payload_type and export_payload_type.lower() != "mediumtext":
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE xy_redemption_batches "
+                            "MODIFY COLUMN export_payload MEDIUMTEXT NULL "
+                            "COMMENT '一次性导出加密载荷，导出后清空'"
+                        )
+                    )
+                    logger.info(
+                        "✓ xy_redemption_batches: export_payload 字段已升级为 MEDIUMTEXT"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"✗ xy_redemption_batches export_payload 字段迁移失败: {e}"
                 )
 
             # xy_cards: 将 text_content / data_content 从 TEXT 升级为 LONGTEXT（支持超大卡券内容）

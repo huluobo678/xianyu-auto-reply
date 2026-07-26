@@ -7,6 +7,7 @@
 3. 充值成功后更新用户余额并插入资金流水（基于用户加锁防并发）
 4. 查询充值订单状态
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,15 +26,16 @@ from common.models.user_setting import UserSetting
 from app.services.alipay_service import AlipayService
 
 from common.utils.time_utils import get_beijing_now_naive, safe_isoformat
+
 logger = logging.getLogger(__name__)
 
 # 续期单价的系统设置 key
-RENEW_MONTH_PRICE_KEY = 'user.renew_month_price'
+RENEW_MONTH_PRICE_KEY = "user.renew_month_price"
 # 续期最大月数（一次性续期上限，防止误操作或溢出）
 MAX_RENEW_MONTHS = 120
 
 # 余额在 user_settings 中的 key
-BALANCE_KEY = 'balance'
+BALANCE_KEY = "balance"
 
 
 class RechargeService:
@@ -42,9 +44,7 @@ class RechargeService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_recharge_order(
-        self, user_id: int, amount: str
-    ) -> Dict[str, Any]:
+    async def create_recharge_order(self, user_id: int, amount: str) -> Dict[str, Any]:
         """创建充值订单并生成支付宝二维码
 
         Args:
@@ -58,11 +58,11 @@ class RechargeService:
         try:
             amt = Decimal(amount)
             if amt <= 0:
-                return {'success': False, 'message': '充值金额必须大于0'}
-            if amt > Decimal('10000'):
-                return {'success': False, 'message': '单次充值金额不能超过10000元'}
+                return {"success": False, "message": "充值金额必须大于0"}
+            if amt > Decimal("10000"):
+                return {"success": False, "message": "单次充值金额不能超过10000元"}
         except Exception:
-            return {'success': False, 'message': '充值金额格式不正确'}
+            return {"success": False, "message": "充值金额格式不正确"}
 
         # 加载支付宝配置
         try:
@@ -70,50 +70,52 @@ class RechargeService:
             alipay = AlipayService(config)
         except ValueError as e:
             logger.error(f"支付宝配置错误: {e}")
-            return {'success': False, 'message': f'支付宝配置错误: {e}'}
+            return {"success": False, "message": f"支付宝配置错误: {e}"}
 
         # 生成订单号
         order_no = AlipayService.generate_order_no()
 
         # 调用当面付接口
         order_data = {
-            'out_trade_no': order_no,
-            'total_amount': str(amt),
-            'subject': f'余额充值 - {order_no}',
-            'body': '用户余额充值',
-            'timeout_express': '30m',
+            "out_trade_no": order_no,
+            "total_amount": str(amt),
+            "subject": f"余额充值 - {order_no}",
+            "body": "用户余额充值",
+            "timeout_express": "30m",
         }
         result = alipay.create_f2f_pay(order_data)
 
-        if not result or not result.get('success'):
-            error_msg = result.get('error', '生成支付二维码失败') if result else '生成支付二维码失败'
-            return {'success': False, 'message': error_msg}
+        if not result or not result.get("success"):
+            error_msg = (
+                result.get("error", "生成支付二维码失败")
+                if result
+                else "生成支付二维码失败"
+            )
+            return {"success": False, "message": error_msg}
 
         # 保存充值订单
         order = RechargeOrder(
             order_no=order_no,
             user_id=user_id,
             amount=str(amt),
-            status='pending',
-            qr_code=result['qr_code'],
+            status="pending",
+            qr_code=result["qr_code"],
         )
         self.session.add(order)
         await self.session.commit()
         await self.session.refresh(order)
 
         return {
-            'success': True,
-            'data': {
-                'order_id': order.id,
-                'order_no': order_no,
-                'amount': str(amt),
-                'qr_code': result['qr_code'],
+            "success": True,
+            "data": {
+                "order_id": order.id,
+                "order_no": order_no,
+                "amount": str(amt),
+                "qr_code": result["qr_code"],
             },
         }
 
-    async def handle_alipay_notify(
-        self, notify_data: Dict[str, Any]
-    ) -> bool:
+    async def handle_alipay_notify(self, notify_data: Dict[str, Any]) -> bool:
         """处理支付宝异步通知
 
         R1 并发安全修复：
@@ -131,9 +133,9 @@ class RechargeService:
         Returns:
             处理是否成功
         """
-        out_trade_no = notify_data.get('out_trade_no', '')
-        trade_no = notify_data.get('trade_no', '')
-        trade_status = notify_data.get('trade_status', '')
+        out_trade_no = notify_data.get("out_trade_no", "")
+        trade_no = notify_data.get("trade_no", "")
+        trade_status = notify_data.get("trade_status", "")
 
         logger.info(f"收到支付宝通知: 订单号={out_trade_no}, 状态={trade_status}")
 
@@ -163,7 +165,7 @@ class RechargeService:
             return False
 
         # 已处理过则幂等返回成功（行锁下二次到达必看到最新状态，不重复入账）
-        if order.status == 'paid':
+        if order.status == "paid":
             logger.info(f"充值订单已处理过: {out_trade_no}")
             return True
 
@@ -173,25 +175,21 @@ class RechargeService:
             return True
 
         # 锁定订单后校验 seller_id：与系统配置的收款商户一致，不匹配则拒绝
-        seller_id = str(notify_data.get('seller_id') or '')
-        expected_seller = str(config.get('seller_id') or '')
+        seller_id = str(notify_data.get("seller_id") or "")
+        expected_seller = str(config.get("seller_id") or "")
         if not seller_id or not expected_seller or seller_id != expected_seller:
-            logger.error(
-                f"支付宝通知 seller_id 不匹配: 订单号={out_trade_no}"
-            )
+            logger.error(f"支付宝通知 seller_id 不匹配: 订单号={out_trade_no}")
             return False
 
         # 锁定订单后校验 total_amount == order.amount：金额篡改直接拒绝
         try:
-            paid_amount = Decimal(str(notify_data.get('total_amount'))).quantize(
-                Decimal('0.01')
+            paid_amount = Decimal(str(notify_data.get("total_amount"))).quantize(
+                Decimal("0.01")
             )
         except (InvalidOperation, TypeError, ValueError):
-            logger.error(
-                f"支付宝通知金额格式错误: 订单号={out_trade_no}"
-            )
+            logger.error(f"支付宝通知金额格式错误: 订单号={out_trade_no}")
             return False
-        expected_amount = Decimal(order.amount).quantize(Decimal('0.01'))
+        expected_amount = Decimal(order.amount).quantize(Decimal("0.01"))
         if paid_amount != expected_amount:
             logger.error(
                 f"支付宝通知金额不匹配: 订单号={out_trade_no}, "
@@ -200,8 +198,14 @@ class RechargeService:
             return False
 
         # 充值成功，更新余额和插入流水（加锁）；状态更新与余额入账同事务
-        await self._process_recharge_success(order, trade_no)
-        return True
+        try:
+            await self._process_recharge_success(order, trade_no)
+            await self.session.commit()
+            return True
+        except Exception:
+            await self.session.rollback()
+            logger.exception("支付宝充值入账事务失败: 订单号=%s", out_trade_no)
+            return False
 
     async def _process_recharge_success(
         self, order: RechargeOrder, trade_no: str
@@ -216,18 +220,22 @@ class RechargeService:
         amount = Decimal(order.amount)
 
         # 使用 SELECT ... FOR UPDATE 对用户余额行加锁，防止并发
-        lock_stmt = select(UserSetting).where(
-            UserSetting.user_id == user_id,
-            UserSetting.key == BALANCE_KEY,
-        ).with_for_update()
+        lock_stmt = (
+            select(UserSetting)
+            .where(
+                UserSetting.user_id == user_id,
+                UserSetting.key == BALANCE_KEY,
+            )
+            .with_for_update()
+        )
         result = await self.session.execute(lock_stmt)
         balance_setting = result.scalar_one_or_none()
 
         # 获取当前余额
         if balance_setting:
-            balance_before = Decimal(balance_setting.value or '0')
+            balance_before = Decimal(balance_setting.value or "0")
         else:
-            balance_before = Decimal('0')
+            balance_before = Decimal("0")
 
         balance_after = balance_before + amount
 
@@ -239,27 +247,27 @@ class RechargeService:
                 user_id=user_id,
                 key=BALANCE_KEY,
                 value=str(balance_after),
-                description='用户余额',
+                description="用户余额",
             )
             self.session.add(balance_setting)
 
         # 插入资金流水
         flow = FundFlow(
             user_id=user_id,
-            type='income',
+            type="income",
             amount=str(amount),
             balance_before=str(balance_before),
             balance_after=str(balance_after),
-            description=f'余额充值（支付宝当面付）订单号: {order.order_no}',
+            description=f"余额充值（支付宝当面付）订单号: {order.order_no}",
         )
         self.session.add(flow)
 
         # 更新充值订单状态
-        order.status = 'paid'
+        order.status = "paid"
         order.trade_no = trade_no
         order.paid_at = get_beijing_now_naive()
 
-        await self.session.commit()
+        await self.session.flush()
         logger.info(
             f"充值成功: 用户={user_id}, 金额={amount}, "
             f"余额: {balance_before} -> {balance_after}"
@@ -270,7 +278,7 @@ class RechargeService:
         admin_user_id: int,
         target_user_id: int,
         amount: str,
-        remark: str = '',
+        remark: str = "",
     ) -> Dict[str, Any]:
         """管理员手动调整用户余额（正数充值 / 负数扣减），加锁防并发
 
@@ -298,32 +306,36 @@ class RechargeService:
         try:
             amt = Decimal(amount)
         except (InvalidOperation, ValueError):
-            return {'success': False, 'message': '金额格式不正确'}
+            return {"success": False, "message": "金额格式不正确"}
         if amt == 0:
-            return {'success': False, 'message': '调整金额不能为0'}
-        if abs(amt) > Decimal('10000'):
-            return {'success': False, 'message': '单次调整金额不能超过10000元'}
+            return {"success": False, "message": "调整金额不能为0"}
+        if abs(amt) > Decimal("10000"):
+            return {"success": False, "message": "单次调整金额不能超过10000元"}
 
         # SELECT ... FOR UPDATE 锁定目标用户余额行，防止并发
-        lock_stmt = select(UserSetting).where(
-            UserSetting.user_id == target_user_id,
-            UserSetting.key == BALANCE_KEY,
-        ).with_for_update()
+        lock_stmt = (
+            select(UserSetting)
+            .where(
+                UserSetting.user_id == target_user_id,
+                UserSetting.key == BALANCE_KEY,
+            )
+            .with_for_update()
+        )
         result = await self.session.execute(lock_stmt)
         balance_setting = result.scalar_one_or_none()
 
         if balance_setting:
-            balance_before = Decimal(balance_setting.value or '0')
+            balance_before = Decimal(balance_setting.value or "0")
         else:
-            balance_before = Decimal('0')
+            balance_before = Decimal("0")
 
         balance_after = balance_before + amt
 
         # 不允许扣成负余额
         if balance_after < 0:
             return {
-                'success': False,
-                'message': f'当前余额 ¥{balance_before:.2f}，扣减 ¥{abs(amt):.2f} 后将为负，操作被拒绝',
+                "success": False,
+                "message": f"当前余额 ¥{balance_before:.2f}，扣减 ¥{abs(amt):.2f} 后将为负，操作被拒绝",
             }
 
         # upsert 余额
@@ -334,20 +346,20 @@ class RechargeService:
                 user_id=target_user_id,
                 key=BALANCE_KEY,
                 value=str(balance_after),
-                description='用户余额',
+                description="用户余额",
             )
             self.session.add(balance_setting)
 
         # 写流水：金额存绝对值，方向靠 type 区分；description 不含"充值"字样
-        direction = '增加' if amt > 0 else '扣减'
-        flow_type = 'income' if amt > 0 else 'expense'
-        desc = f'管理员手动调整余额（{direction}），操作人ID: {admin_user_id}'
+        direction = "增加" if amt > 0 else "扣减"
+        flow_type = "income" if amt > 0 else "expense"
+        desc = f"管理员手动调整余额（{direction}），操作人ID: {admin_user_id}"
         if remark:
             # 净化备注中的"充值"字样：手动调整流水一旦含"充值"会被提现风控
             # （withdraw_risk_check._check_recharge_flows 按 '充值' in description 匹配）
             # 当作充值流水核验，进而因找不到对应充值订单而误报。
-            safe_remark = remark.replace('充值', '入账')
-            desc += f'，备注: {safe_remark}'
+            safe_remark = remark.replace("充值", "入账")
+            desc += f"，备注: {safe_remark}"
         flow = FundFlow(
             user_id=target_user_id,
             type=flow_type,
@@ -364,18 +376,16 @@ class RechargeService:
             f"调整={amt}, 余额: {balance_before} -> {balance_after}"
         )
         return {
-            'success': True,
-            'message': '余额调整成功',
-            'data': {
-                'balance_before': f'{balance_before:.2f}',
-                'balance_after': f'{balance_after:.2f}',
-                'amount': f'{amt:.2f}',
+            "success": True,
+            "message": "余额调整成功",
+            "data": {
+                "balance_before": f"{balance_before:.2f}",
+                "balance_after": f"{balance_after:.2f}",
+                "amount": f"{amt:.2f}",
             },
         }
 
-    async def renew_membership(
-        self, user_id: int, months: int
-    ) -> Dict[str, Any]:
+    async def renew_membership(self, user_id: int, months: int) -> Dict[str, Any]:
         """用户续期：扣减余额并延长到期日（基于余额行锁防并发）
 
         复用与充值一致的加锁改余额 + 写流水模式：
@@ -395,44 +405,54 @@ class RechargeService:
         """
         # 校验月数
         if not isinstance(months, int) or months <= 0:
-            return {'success': False, 'message': '续期月数必须为正整数'}
+            return {"success": False, "message": "续期月数必须为正整数"}
         if months > MAX_RENEW_MONTHS:
-            return {'success': False, 'message': f'单次续期不能超过{MAX_RENEW_MONTHS}个月'}
+            return {
+                "success": False,
+                "message": f"单次续期不能超过{MAX_RENEW_MONTHS}个月",
+            }
 
         # 读取续期单价
         price_stmt = select(SystemSetting.value).where(
             SystemSetting.key == RENEW_MONTH_PRICE_KEY
         )
         price_raw = (await self.session.execute(price_stmt)).scalar_one_or_none()
-        price_text = str(price_raw or '').strip()
+        price_text = str(price_raw or "").strip()
         if not price_text:
-            return {'success': False, 'message': '续期功能未开放，请联系管理员配置续期单价'}
+            return {
+                "success": False,
+                "message": "续期功能未开放，请联系管理员配置续期单价",
+            }
         try:
             unit_price = Decimal(price_text)
         except (InvalidOperation, ValueError):
-            return {'success': False, 'message': '续期单价配置有误，请联系管理员'}
+            return {"success": False, "message": "续期单价配置有误，请联系管理员"}
         if unit_price <= 0:
-            return {'success': False, 'message': '续期单价配置有误，请联系管理员'}
+            return {"success": False, "message": "续期单价配置有误，请联系管理员"}
 
         total = unit_price * months
 
         # SELECT ... FOR UPDATE 锁定用户余额行，防止并发
-        lock_stmt = select(UserSetting).where(
-            UserSetting.user_id == user_id,
-            UserSetting.key == BALANCE_KEY,
-        ).with_for_update()
+        lock_stmt = (
+            select(UserSetting)
+            .where(
+                UserSetting.user_id == user_id,
+                UserSetting.key == BALANCE_KEY,
+            )
+            .with_for_update()
+        )
         balance_setting = (await self.session.execute(lock_stmt)).scalar_one_or_none()
 
         if balance_setting:
-            balance_before = Decimal(balance_setting.value or '0')
+            balance_before = Decimal(balance_setting.value or "0")
         else:
-            balance_before = Decimal('0')
+            balance_before = Decimal("0")
 
         # 余额不足直接拒绝
         if balance_before < total:
             return {
-                'success': False,
-                'message': f'余额不足，续期 {months} 个月需 ¥{total:.2f}，当前余额 ¥{balance_before:.2f}',
+                "success": False,
+                "message": f"余额不足，续期 {months} 个月需 ¥{total:.2f}，当前余额 ¥{balance_before:.2f}",
             }
 
         balance_after = balance_before - total
@@ -445,18 +465,18 @@ class RechargeService:
                 user_id=user_id,
                 key=BALANCE_KEY,
                 value=str(balance_after),
-                description='用户余额',
+                description="用户余额",
             )
             self.session.add(balance_setting)
 
         # 写流水：续期为支出，金额存绝对值
         flow = FundFlow(
             user_id=user_id,
-            type='expense',
+            type="expense",
             amount=str(total),
             balance_before=str(balance_before),
             balance_after=str(balance_after),
-            description=f'账户续期 {months} 个月（单价 ¥{unit_price:.2f}/月）',
+            description=f"账户续期 {months} 个月（单价 ¥{unit_price:.2f}/月）",
         )
         self.session.add(flow)
 
@@ -464,7 +484,7 @@ class RechargeService:
         user = await self.session.get(User, user_id)
         if not user:
             await self.session.rollback()
-            return {'success': False, 'message': '用户不存在'}
+            return {"success": False, "message": "用户不存在"}
 
         now = get_beijing_now_naive()
         # 未到期则从原到期日累加，已到期 / 无到期日则从当前时间累加
@@ -481,15 +501,15 @@ class RechargeService:
             f"余额: {balance_before} -> {balance_after}, 到期日 -> {new_expire_at}"
         )
         return {
-            'success': True,
-            'message': f'续期成功，已延长 {months} 个月',
-            'data': {
-                'months': months,
-                'unit_price': f'{unit_price:.2f}',
-                'total': f'{total:.2f}',
-                'balance_before': f'{balance_before:.2f}',
-                'balance_after': f'{balance_after:.2f}',
-                'expire_at': safe_isoformat(new_expire_at),
+            "success": True,
+            "message": f"续期成功，已延长 {months} 个月",
+            "data": {
+                "months": months,
+                "unit_price": f"{unit_price:.2f}",
+                "total": f"{total:.2f}",
+                "balance_before": f"{balance_before:.2f}",
+                "balance_after": f"{balance_after:.2f}",
+                "expire_at": safe_isoformat(new_expire_at),
             },
         }
 
@@ -516,11 +536,11 @@ class RechargeService:
             return None
 
         return {
-            'order_id': order.id,
-            'order_no': order.order_no,
-            'amount': order.amount,
-            'status': order.status,
-            'trade_no': order.trade_no,
-            'paid_at': safe_isoformat(order.paid_at),
-            'created_at': safe_isoformat(order.created_at),
+            "order_id": order.id,
+            "order_no": order.order_no,
+            "amount": order.amount,
+            "status": order.status,
+            "trade_no": order.trade_no,
+            "paid_at": safe_isoformat(order.paid_at),
+            "created_at": safe_isoformat(order.created_at),
         }

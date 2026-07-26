@@ -16,19 +16,19 @@ from common.services.billing_service import BillingCatalogError, BillingService
 from common.services.subscription_feature_service import SubscriptionFeatureService
 from common.utils.time_utils import safe_isoformat
 
-router = APIRouter(prefix='/billing', tags=['billing'])
+router = APIRouter(prefix="/billing", tags=["billing"])
 
 # 支付宝入口被 alipay.enabled=false 关闭时统一返回的提示
-_ALIPAY_DISABLED_MESSAGE = '支付未开通，请前往兑换码商城购买兑换码'
+_ALIPAY_DISABLED_MESSAGE = "支付未开通，请前往兑换码商城购买兑换码"
 
 
 class CreateBillingOrderRequest(BaseModel):
-    product_type: str = Field(pattern='^(plan|ai_quota_package)$')
+    product_type: str = Field(pattern="^(plan|ai_quota_package)$")
     product_id: int = Field(gt=0)
     request_key: str = Field(min_length=8, max_length=64)
 
 
-@router.get('/catalog', response_model=ApiResponse)
+@router.get("/catalog", response_model=ApiResponse)
 async def get_billing_catalog(
     _: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
@@ -37,7 +37,7 @@ async def get_billing_catalog(
     return ApiResponse(success=True, data=data)
 
 
-@router.get('/payment-readiness', response_model=ApiResponse)
+@router.get("/payment-readiness", response_model=ApiResponse)
 async def get_payment_readiness(
     _: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
@@ -48,19 +48,20 @@ async def get_payment_readiness(
     except AlipayDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     ready = await BillingPaymentService(session).payment_ready()
-    return ApiResponse(success=True, data={'payment_ready': ready})
+    return ApiResponse(success=True, data={"payment_ready": ready})
 
-@router.get('/entitlements', response_model=ApiResponse)
+
+@router.get("/entitlements", response_model=ApiResponse)
 async def get_my_entitlements(
     current_user: User = Depends(deps.get_current_active_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
     data = await SubscriptionFeatureService(session).get_entitlements(current_user.id)
-    data['expires_at'] = safe_isoformat(data['expires_at'])
+    data["expires_at"] = safe_isoformat(data["expires_at"])
     return ApiResponse(success=True, data=data)
 
 
-@router.post('/orders', response_model=ApiResponse)
+@router.post("/orders", response_model=ApiResponse)
 async def create_billing_order(
     payload: CreateBillingOrderRequest,
     current_user: User = Depends(deps.get_current_active_user),
@@ -73,19 +74,25 @@ async def create_billing_order(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         order, duplicate = await BillingService(session).create_order(
-            current_user.id, payload.product_type,
-            payload.product_id, payload.request_key,
+            current_user.id,
+            payload.product_type,
+            payload.product_id,
+            payload.request_key,
         )
     except BillingCatalogError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     payment_ready = await BillingPaymentService(session).payment_ready()
     data = BillingService.serialize_order(order)
-    data.update({'duplicate': duplicate, 'payment_ready': payment_ready})
-    message = 'Order ready for payment' if payment_ready else 'Order created; payment channel is not configured'
+    data.update({"duplicate": duplicate, "payment_ready": payment_ready})
+    message = (
+        "Order ready for payment"
+        if payment_ready
+        else "Order created; payment channel is not configured"
+    )
     return ApiResponse(success=True, message=message, data=data)
 
 
-@router.post('/orders/{order_no}/pay', response_model=ApiResponse)
+@router.post("/orders/{order_no}/pay", response_model=ApiResponse)
 async def create_order_payment(
     order_no: str,
     current_user: User = Depends(deps.get_current_active_user),
@@ -103,10 +110,10 @@ async def create_order_payment(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except BillingPaymentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return ApiResponse(success=True, message='Alipay QR code created', data=data)
+    return ApiResponse(success=True, message="Alipay QR code created", data=data)
 
 
-@router.get('/orders/{order_no}', response_model=ApiResponse)
+@router.get("/orders/{order_no}", response_model=ApiResponse)
 async def get_billing_order(
     order_no: str,
     current_user: User = Depends(deps.get_current_active_user),
@@ -120,15 +127,17 @@ async def get_billing_order(
     payment_service = BillingPaymentService(session)
     order = await payment_service.get_order(current_user.id, order_no)
     if not order:
-        raise HTTPException(status_code=404, detail='Billing order not found')
+        raise HTTPException(status_code=404, detail="Billing order not found")
     data = BillingService.serialize_order(order)
-    data.update(payment_service.serialize_payment(
-        order, payment_ready=await payment_service.payment_ready()
-    ))
+    data.update(
+        payment_service.serialize_payment(
+            order, payment_ready=await payment_service.payment_ready()
+        )
+    )
     return ApiResponse(success=True, data=data)
 
 
-@router.post('/alipay/notify')
+@router.post("/alipay/notify")
 async def billing_alipay_notify(request: Request) -> PlainTextResponse:
     from common.db.session import async_session_maker
 
@@ -139,6 +148,6 @@ async def billing_alipay_notify(request: Request) -> PlainTextResponse:
         try:
             await require_alipay_enabled(session)
         except AlipayDisabledError:
-            return PlainTextResponse('failure', status_code=503)
+            return PlainTextResponse("failure", status_code=503)
         ok = await BillingPaymentService(session).handle_alipay_notify(notify_data)
-    return PlainTextResponse('success' if ok else 'failure')
+    return PlainTextResponse("success" if ok else "failure")

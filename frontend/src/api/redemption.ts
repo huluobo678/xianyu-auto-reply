@@ -57,13 +57,12 @@ export interface RedemptionBatch {
   created_at: string | null
 }
 
-/** 创建批次返回（含一次性明文兑换码） */
+/** 创建批次返回（仅元数据，不含完整兑换码） */
 export interface CreateBatchResult {
   batch_id: number
   batch_no: string
   product_type: 'plan' | 'ai_quota_package'
   product_code: string
-  codes: string[]
 }
 
 /** 兑换审计记录（不含完整兑换码） */
@@ -95,7 +94,7 @@ export const redeem = (code: string, idempotencyKey: string, confirm = false) =>
     confirm,
   })
 
-/** 管理员：生成兑换码批次，一次性返回明文兑换码（仅显示一次） */
+/** 管理员：生成并提交兑换码批次，仅返回元数据 */
 export const createBatch = (data: {
   product_type: 'plan' | 'ai_quota_package'
   product_code: string

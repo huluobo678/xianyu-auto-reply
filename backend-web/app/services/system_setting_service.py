@@ -7,6 +7,7 @@
 3. 键值对存储和查询
 4. XSS防护
 """
+
 from __future__ import annotations
 
 from typing import Dict
@@ -40,7 +41,9 @@ DEFAULT_DISCLAIMER_CONTENT = (
 )
 
 DEFAULT_LOGIN_SYSTEM_TITLE = "高效专业的\n闲鱼AI自动化管理系统"
-DEFAULT_LOGIN_SYSTEM_DESCRIPTION = "AI自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题"
+DEFAULT_LOGIN_SYSTEM_DESCRIPTION = (
+    "AI自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题"
+)
 DEFAULT_AUTH_FOOTER_AD_HTML = "公众号：云枢AI社"
 
 DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
@@ -57,7 +60,10 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
     "theme.effect": ("solid", "系统主题效果（solid-纯色，gradient-炫彩）"),
     "theme.color_preset": ("ocean", "系统主题颜色预设"),
     "theme.font_family": ("system", "系统主题字体预设"),
-    "log.retention_days": ("7", "日志保留天数（所有模块生效，修改后实时刷新各服务日志策略）"),
+    "log.retention_days": (
+        "7",
+        "日志保留天数（所有模块生效，修改后实时刷新各服务日志策略）",
+    ),
     "account.face_verify_timeout_disable": ("true", "人脸验证超时是否自动禁用账号"),
     # 代理设置：用于配置网络请求的代理 API URL 和启用开关
     # api_url 默认空字符串表示未配置；enabled 默认 false 表示不启用
@@ -97,7 +103,7 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, tuple[str, str | None]] = {
 # 不需要XSS转义的键（布尔值、数字等）
 NO_ESCAPE_KEYS = {
     "registration_enabled",
-    "show_default_login_info", 
+    "show_default_login_info",
     "login_captcha_enabled",
     "disclaimer.title",
     "disclaimer.content",
@@ -160,7 +166,9 @@ class SystemSettingService:
         self.session = session
 
     async def ensure_default_settings(self) -> None:
-        existing_stmt = select(SystemSetting.key).where(SystemSetting.key.in_(tuple(DEFAULT_SYSTEM_SETTINGS.keys())))
+        existing_stmt = select(SystemSetting.key).where(
+            SystemSetting.key.in_(tuple(DEFAULT_SYSTEM_SETTINGS.keys()))
+        )
         existing_result = await self.session.execute(existing_stmt)
         existing_keys = set(existing_result.scalars().all())
 
@@ -189,7 +197,9 @@ class SystemSettingService:
             settings[entry.key] = entry.value
         return settings
 
-    async def set_setting(self, key: str, value: str, description: str | None = None) -> None:
+    async def set_setting(
+        self, key: str, value: str, description: str | None = None
+    ) -> None:
         stmt = select(SystemSetting).where(SystemSetting.key == key)
         result = await self.session.execute(stmt)
         record = result.scalars().first()
@@ -198,7 +208,9 @@ class SystemSettingService:
         safe_value = value if key in NO_ESCAPE_KEYS else escape_xss(value)
         safe_description = escape_xss(description) if description else None
 
-        if key in SENSITIVE_KEYS and (not safe_value.strip() or safe_value.strip().startswith("***")):
+        if key in SENSITIVE_KEYS and (
+            not safe_value.strip() or safe_value.strip().startswith("***")
+        ):
             return
 
         if record:
@@ -206,7 +218,9 @@ class SystemSettingService:
             if description is not None:
                 record.description = safe_description
         else:
-            record = SystemSetting(key=key, value=safe_value, description=safe_description)
+            record = SystemSetting(
+                key=key, value=safe_value, description=safe_description
+            )
 
         self.session.add(record)
         await self.session.commit()

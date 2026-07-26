@@ -8,6 +8,7 @@
    - 通过内部 HTTP 通知 websocket / scheduler 服务刷新
    - 未通知成功的服务由各自启动的自动同步任务兜底补齐
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -166,7 +167,9 @@ async def _notify_log_retention_service(
             json={"retention_days": retention_days},
         )
         success = bool(response.get("success"))
-        default_msg = f"{service_name}服务刷新成功" if success else f"{service_name}服务刷新失败"
+        default_msg = (
+            f"{service_name}服务刷新成功" if success else f"{service_name}服务刷新失败"
+        )
         return {
             "success": success,
             "message": str(response.get("message") or default_msg),
@@ -187,13 +190,19 @@ async def _refresh_log_retention_runtime(retention_days: int) -> dict:
     results = {
         "backend_web": {
             "success": True,
-            "message": "backend-web服务已刷新" if local_updated else "backend-web服务无需变更",
+            "message": "backend-web服务已刷新"
+            if local_updated
+            else "backend-web服务无需变更",
         },
         "websocket": await _notify_log_retention_service(
-            "WebSocket", settings.websocket_service_url, retention_days,
+            "WebSocket",
+            settings.websocket_service_url,
+            retention_days,
         ),
         "scheduler": await _notify_log_retention_service(
-            "Scheduler", settings.scheduler_service_url, retention_days,
+            "Scheduler",
+            settings.scheduler_service_url,
+            retention_days,
         ),
         "promotion_backend": {
             "success": True,
@@ -236,7 +245,9 @@ async def get_system_settings(
     settings["runtime.is_exe_mode"] = "true" if is_frozen() else "false"
     if current_user.role == UserRole.ADMIN:
         return settings
-    return {key: value for key, value in settings.items() if key in NON_ADMIN_ALLOWED_KEYS}
+    return {
+        key: value for key, value in settings.items() if key in NON_ADMIN_ALLOWED_KEYS
+    }
 
 
 @router.put("/{key}", response_model=ApiResponse)
@@ -260,7 +271,7 @@ async def update_system_setting(
     if key == "redemption_store_url":
         store_error = _validate_redemption_store_url(payload.value)
         if store_error:
-            return ApiResponse(success=False, message=store_error)
+            raise HTTPException(status_code=400, detail=store_error)
 
     retention_days: int | None = None
     if key == LOG_RETENTION_KEY:
@@ -313,6 +324,6 @@ async def test_email_send(
 ) -> ApiResponse:
     """发送测试邮件"""
     from app.services.email_service import send_test_email
-    
+
     success, message = await send_test_email(email)
     return ApiResponse(success=success, message=message)

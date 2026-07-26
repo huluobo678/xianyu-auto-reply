@@ -10,6 +10,7 @@
 
 守卫只读取 ``alipay.enabled`` 设置项，不接触私钥/公钥等敏感配置。
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select

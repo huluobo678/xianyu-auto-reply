@@ -3,7 +3,7 @@
 覆盖 ``/api/v1/admin/redemption/*`` 管理员接口：
 
 1. 普通用户访问返回 403（路由级 ``get_current_admin_user`` 守卫）；
-2. 管理员可创建批次（一次性返回明文兑换码）；
+2. 管理员可创建并提交批次（响应不含完整兑换码）；
 3. 管理员可查询批次（列表不含完整兑换码）；
 4. 管理员可一次性导出完整兑换码；
 5. 导出后不得再次导出（服务层 ``exported_at`` 已标记 → 再次导出拒绝）；
@@ -45,7 +45,12 @@ _PLAIN_CODE = "FULLPLAINCODE1234567890AB"
 
 
 class AdminFakeSession:
-    """管理接口仅触发 ``session.commit()``（服务方法已 patch），其余 no-op。"""
+    """记录管理接口事务调用的最小会话替身。"""
+
+    def __init__(self, *, commit_error: Exception | None = None):
+        self.commit_error = commit_error
+        self.commit_calls = 0
+        self.rollback_calls = 0
 
     async def scalar(self, _statement):
         return None
@@ -57,13 +62,18 @@ class AdminFakeSession:
         )
 
     async def commit(self):
-        return None
+        self.commit_calls += 1
+        if self.commit_error:
+            raise self.commit_error
+
+    async def rollback(self):
+        self.rollback_calls += 1
 
     async def flush(self):
         return None
 
 
-def _build_app(*, admin_user=_ADMIN) -> FastAPI:
+def _build_app(*, admin_user=_ADMIN, session=None) -> FastAPI:
     app = FastAPI()
     app.include_router(redemption_routes.router, prefix="/api/v1")
     app.include_router(redemption_routes.admin_router, prefix="/api/v1/admin")
@@ -71,7 +81,9 @@ def _build_app(*, admin_user=_ADMIN) -> FastAPI:
         id=7, role="user", is_admin=False
     )
     app.dependency_overrides[deps.get_current_admin_user] = lambda: admin_user
-    app.dependency_overrides[deps.get_db_session] = lambda: AdminFakeSession()
+    app.dependency_overrides[deps.get_db_session] = lambda: (
+        session or AdminFakeSession()
+    )
     return app
 
 
@@ -113,15 +125,15 @@ class AdminAccessTests(unittest.TestCase):
 class AdminBatchTests(unittest.TestCase):
     """创建 / 查询 / 年卡拒绝 / 导出一次性 / 禁用 / 审计。"""
 
-    def test_admin_can_create_batch_and_get_codes_once(self):
-        app = _build_app()
+    def test_admin_create_batch_commits_and_returns_no_codes(self):
+        session = AdminFakeSession()
+        app = _build_app(session=session)
         client = TestClient(app)
         canned = BatchCreateResult(
             batch_id=1,
             batch_no="RB1",
             product_type="plan",
             product_code="standard",
-            codes=[_PLAIN_CODE],
         )
         with patch(
             "app.api.routes.redemption.RedemptionService.create_batch",
@@ -139,9 +151,39 @@ class AdminBatchTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertTrue(body["success"])
-        # 明文兑换码仅在创建时返回一次给管理员
-        self.assertEqual(body["data"]["codes"], [_PLAIN_CODE])
         self.assertEqual(body["data"]["batch_id"], 1)
+        self.assertNotIn("codes", body["data"])
+        self.assertNotIn(_PLAIN_CODE, resp.text)
+        self.assertEqual(session.commit_calls, 1)
+        self.assertEqual(session.rollback_calls, 0)
+
+    def test_create_batch_commit_failure_rolls_back_without_plaintext(self):
+        session = AdminFakeSession(commit_error=RuntimeError("commit failed"))
+        app = _build_app(session=session)
+        client = TestClient(app, raise_server_exceptions=False)
+        canned = BatchCreateResult(
+            batch_id=1,
+            batch_no="RB1",
+            product_type="plan",
+            product_code="standard",
+        )
+        with patch(
+            "app.api.routes.redemption.RedemptionService.create_batch",
+            new=AsyncMock(return_value=canned),
+        ):
+            resp = client.post(
+                "/api/v1/admin/redemption/batches",
+                json={
+                    "product_type": "plan",
+                    "product_code": "standard",
+                    "billing_cycle": "monthly",
+                    "count": 1,
+                },
+            )
+        self.assertEqual(resp.status_code, 500)
+        self.assertNotIn(_PLAIN_CODE, resp.text)
+        self.assertEqual(session.commit_calls, 1)
+        self.assertEqual(session.rollback_calls, 1)
 
     def test_yearly_plan_batch_rejected(self):
         app = _build_app()
@@ -208,6 +250,25 @@ class AdminBatchTests(unittest.TestCase):
         self.assertIn(_PLAIN_CODE, first.text)
         # 第二次不得再次导出完整兑换码
         self.assertEqual(second.status_code, 400)
+
+    def test_export_commit_failure_rolls_back_and_deletes_file(self):
+        session = AdminFakeSession(commit_error=RuntimeError("commit failed"))
+        app = _build_app(session=session)
+        client = TestClient(app, raise_server_exceptions=False)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        )
+        tmp.write(_PLAIN_CODE + "\n")
+        tmp.flush()
+        tmp.close()
+        with patch(
+            "app.api.routes.redemption.RedemptionService.export_batch_once",
+            new=AsyncMock(return_value=tmp.name),
+        ):
+            resp = client.post("/api/v1/admin/redemption/batches/1/export")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(session.rollback_calls, 1)
+        self.assertFalse(Path(tmp.name).exists())
 
     def test_admin_can_disable_batch(self):
         app = _build_app()

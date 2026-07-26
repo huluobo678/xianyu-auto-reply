@@ -176,7 +176,7 @@ class StoreWriteTests(unittest.TestCase):
             "/api/v1/system-settings/redemption_store_url",
             json={"value": "http://pay.ldxp.cn/shop/x"},
         )
-        self.assertFalse(resp.json()["success"])
+        self.assertEqual(resp.status_code, 400)
         self.assertEqual(service.set_calls, [])
 
     def test_wrong_host_rejected(self):
@@ -187,7 +187,7 @@ class StoreWriteTests(unittest.TestCase):
             "/api/v1/system-settings/redemption_store_url",
             json={"value": "https://evil.com/shop/x"},
         )
-        self.assertFalse(resp.json()["success"])
+        self.assertEqual(resp.status_code, 400)
         self.assertEqual(service.set_calls, [])
 
     def test_port_bypass_rejected(self):
@@ -198,7 +198,7 @@ class StoreWriteTests(unittest.TestCase):
             "/api/v1/system-settings/redemption_store_url",
             json={"value": "https://pay.ldxp.cn:8080/shop/x"},
         )
-        self.assertFalse(resp.json()["success"])
+        self.assertEqual(resp.status_code, 400)
         self.assertEqual(service.set_calls, [])
 
     def test_non_admin_cannot_modify(self):

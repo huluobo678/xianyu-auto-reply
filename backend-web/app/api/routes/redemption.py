@@ -6,16 +6,17 @@
   防重复提交，不在响应/异常/日志中回显完整兑换码。
 
 管理员接口（``get_current_admin_user`` 保护，普通用户 403），挂在 ``/admin`` 下：
-- ``POST /admin/redemption/batches``：生成兑换码批次，一次性返回明文兑换码；
+- ``POST /admin/redemption/batches``：生成并提交兑换码批次，仅返回批次元数据；
 - ``GET /admin/redemption/batches``：查询批次列表（仅尾4位/状态/统计，不含完整码）；
 - ``POST /admin/redemption/batches/{id}/export``：一次性导出完整兑换码到临时文件；
 - ``POST /admin/redemption/batches/{id}/disable``：禁用批次；
 - ``POST /admin/redemption/codes/{id}/disable``：禁用单码；
 - ``GET /admin/redemption/audit``：兑换审计（不含完整兑换码）。
 
-安全：完整兑换码只在生成时返回一次；导出文件写入专用临时目录（已 gitignore），
+安全：完整兑换码只通过一次性导出交付；导出文件写入仓库外临时目录，
 下载/超时后删除；日志与审计只记尾4位/ID/状态，绝不记录完整码。
 """
+
 from __future__ import annotations
 
 import logging
@@ -149,7 +150,7 @@ async def create_batch(
     current_user: User = Depends(deps.get_current_admin_user),
     session: AsyncSession = Depends(deps.get_db_session),
 ) -> ApiResponse:
-    """生成兑换码批次，一次性返回明文兑换码（仅此一次）。"""
+    """原子创建兑换码批次并提交，仅返回批次元数据。"""
     if payload.product_type == "plan":
         if payload.billing_cycle not in ("monthly", "quarterly"):
             raise HTTPException(
@@ -167,18 +168,22 @@ async def create_batch(
             count=payload.count,
             expires_at=payload.expires_at,
         )
+        await session.commit()
     except RedemptionError as exc:
+        await session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # 明文兑换码仅此一次返回给管理员；之后只能从导出文件或本次响应保存
+    except Exception as exc:
+        await session.rollback()
+        logging.getLogger(__name__).exception("创建兑换码批次事务提交失败")
+        raise HTTPException(status_code=500, detail="兑换码批次创建失败") from exc
     return ApiResponse(
         success=True,
-        message="兑换码批次已生成，请立即保存完整兑换码（仅显示一次）",
+        message="批次已创建，请立即执行一次性导出。",
         data={
             "batch_id": result.batch_id,
             "batch_no": result.batch_no,
             "product_type": result.product_type,
             "product_code": result.product_code,
-            "codes": result.codes,
         },
     )
 
@@ -206,11 +211,19 @@ async def export_batch(
     - 导出文件写入专用临时目录（已 gitignore），下载后由回调删除；
     - 不得把导出文件提交 Git。
     """
+    file_path: str | None = None
     try:
         file_path = await RedemptionService(session).export_batch_once(batch_id)
+        await session.commit()
     except RedemptionError as exc:
+        await session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await session.commit()
+    except Exception as exc:
+        await session.rollback()
+        if file_path:
+            RedemptionService.delete_export_file(file_path)
+        logging.getLogger(__name__).exception("一次性导出事务提交失败")
+        raise HTTPException(status_code=500, detail="兑换码导出失败，请重试") from exc
     file_name = Path(file_path).name
     # 下载完成后删除临时文件，避免完整兑换码驻留磁盘
     background = BackgroundTasks()

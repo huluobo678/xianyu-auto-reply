@@ -2,29 +2,40 @@
 
 安全设计：
 - 兑换码使用 ``secrets`` 生成密码学安全随机串，禁止连续编号/时间戳/可预测编码。
-- 数据库只保存 ``HMAC-SHA256(code, redemption.hmac_secret)`` 摘要与尾 4 位，不保存完整码。
-- 完整明文仅在 ``create_batch`` 返回一次；``export_batch_once`` 只能消费同一生成事务内
-  的临时安全载荷（进程内短时缓存），绝不从摘要反推，也绝不为支持二次导出而把明文写库。
-- 导出文件名使用 ``secrets`` 随机串，输出到专用临时目录（已加入 .gitignore），
+- 数据库兑换码主记录只保存 ``HMAC-SHA256(code, redemption.hmac_secret)`` 摘要与尾 4 位，
+  不保存完整码；摘要不可反推明文。
+- 完整兑换码的**唯一**一次明文交付入口是 ``export_batch_once``：创建批次时把完整明文
+  以 Fernet（AES-128-CBC + HMAC-SHA256 认证加密）加密后写入批次的 ``export_payload``，
+  不在创建响应中返回明文。导出成功后清空 ``export_payload`` 并设置 ``exported_at``，
+  永久不可二次导出。密钥由已持久化的 ``redemption.hmac_secret`` 经 HKDF 派生，
+  不引入额外托管密钥；密钥不可用时失败关闭，不回退临时密钥。
+- 导出文件名使用 ``secrets`` 随机串，输出到仓库外专用临时目录（已加入 .gitignore），
   下载或超时后删除，不允许进入 Git。
 - 核销在同一数据库事务内完成：HMAC→行锁兑换码→按 (user_id, idempotency_key)
   幂等校验→校验码状态→按批次冻结快照发放→标记 used→写记录→提交；失败整体回滚，
   兑换码不被消耗，不形成部分权益。
 - 并发与幂等：行锁 + ``code_digest`` 唯一约束 + ``RedemptionRecord`` 的
   ``(user_id, idempotency_key)`` 唯一约束共同保证；幂等键按用户隔离，不依赖应用内锁。
-- HMAC 密钥失败关闭：库不可用或未初始化时绝不回退进程内临时随机密钥，生成/核销直接失败。
+- 并发导出：``with_for_update()`` 锁定批次行，两个并发导出只有一个能进入解密+清空流程，
+  另一个等待行锁后看到 ``exported_at`` 已设置而拒绝。
+- HMAC 密钥失败关闭：库不可用或未初始化时绝不回退进程内临时随机密钥，生成/核销/导出直接失败。
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import json
 import secrets
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -56,14 +67,11 @@ REDEMPTION_HMAC_SETTING_KEY = "redemption.hmac_secret"
 _CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 _CODE_LENGTH = 24
 
-# 导出专用临时目录（相对仓库根，已加入 .gitignore）。
-_EXPORT_DIR_NAME = "redemption_exports"
+# 一次性导出加密载荷的派生上下文：用 HKDF 从已持久化的 HMAC 密钥派生 Fernet 密钥，
+# 不引入额外托管密钥；密钥不可用时导出失败关闭。
+_FERNET_HKDF_INFO = b"redemption_export_fernet_v1"
 
-# 进程内短时安全载荷：create_batch 生成后暂存明文，export_batch_once 一次性消费。
-# 仅存在于内存，进程重启即丢失——明文永远不落库。
-_pending_exports: dict[int, list[str]] = {}
-
-# 进程内密钥缓存（由 backend-web bootstrap 持久化成功后注入；缺失时查库，库无则失败关闭）。
+# 进程内 HMAC 密钥缓存（由 backend-web bootstrap 持久化成功后注入；缺失时查库，库无则失败关闭）。
 _injected_secret: str | None = None
 
 
@@ -77,7 +85,6 @@ class BatchCreateResult:
     batch_no: str
     product_type: str
     product_code: str
-    codes: list[str]  # 一次性明文，仅此返回
 
 
 @dataclass(frozen=True)
@@ -151,6 +158,44 @@ def _generate_code() -> str:
     return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
 
 
+def _export_cipher(secret: str) -> Fernet:
+    derived_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=_FERNET_HKDF_INFO,
+    ).derive(secret.encode("utf-8"))
+    return Fernet(base64.urlsafe_b64encode(derived_key))
+
+
+def _encrypt_export_payload(codes: list[str], secret: str) -> str:
+    payload = json.dumps(codes, ensure_ascii=True, separators=(",", ":")).encode()
+    return _export_cipher(secret).encrypt(payload).decode("ascii")
+
+
+def _decrypt_export_payload(payload: str, secret: str) -> list[str]:
+    try:
+        decrypted = _export_cipher(secret).decrypt(payload.encode("ascii"))
+        codes = json.loads(decrypted.decode("utf-8"))
+    except (
+        InvalidToken,
+        UnicodeError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise RedemptionError(
+            "Redemption export payload is unavailable or corrupted"
+        ) from exc
+    if (
+        not isinstance(codes, list)
+        or not codes
+        or not all(isinstance(code, str) and code for code in codes)
+    ):
+        raise RedemptionError("Redemption export payload is unavailable or corrupted")
+    return codes
+
+
 # 权益快照必须覆盖的字段：兑换时只依赖快照发放权益，缺少任一字段即失败关闭。
 _PLAN_SNAPSHOT_REQUIRED_FIELDS = (
     "plan_id",
@@ -216,7 +261,7 @@ class RedemptionService:
         expires_at: datetime | None = None,
         now: datetime | None = None,
     ) -> BatchCreateResult:
-        """生成一批兑换码，返回一次性明文列表。"""
+        """生成批次、摘要记录和加密导出载荷，由调用方统一提交事务。"""
         now = now or get_beijing_now_naive()
         if product_type not in ("plan", "ai_quota_package"):
             raise RedemptionError(f"Unsupported product type: {product_type}")
@@ -277,17 +322,17 @@ class RedemptionService:
                 )
             )
             plain_codes.append(code)
-        await self.session.flush()
-
-        # 暂存一次性明文载荷，供 export_batch_once 在同进程内消费一次
-        _pending_exports[batch.id] = list(plain_codes)
+        try:
+            batch.export_payload = _encrypt_export_payload(plain_codes, secret)
+            await self.session.flush()
+        finally:
+            plain_codes.clear()
 
         return BatchCreateResult(
             batch_id=batch.id,
             batch_no=batch_no,
             product_type=product_type,
             product_code=product_code,
-            codes=plain_codes,
         )
 
     def _resolve_plan_params(
@@ -328,10 +373,10 @@ class RedemptionService:
         """一次性导出某批次的明文兑换码到临时文件，返回文件路径。
 
         - 仅 ``exported_at`` 为空的批次可导出一次；成功后设置 ``exported_at``。
-        - 明文只来自同进程生成时暂存的临时载荷；进程重启后不可再导出
-          （此时只能依赖 create_batch 当次返回的明文）。
-        - 不得从摘要反推；明文永不写库。
-        - 文件名使用 ``secrets`` 随机串，输出到专用临时目录（已 gitignore）。
+        - 明文从数据库中的认证加密载荷解密，不依赖进程内字典或 worker 粘性；
+        - 不得从摘要反推；数据库不保存明文；
+        - 文件名使用 ``secrets`` 随机串，输出到仓库外临时目录；
+        - 调用方提交成功后才可把文件交付客户端。
         """
         batch = await self.session.scalar(
             select(RedemptionBatch)
@@ -345,26 +390,28 @@ class RedemptionService:
                 "Batch already exported; codes can be viewed once only"
             )
 
-        plain_codes = _pending_exports.get(batch.id)
-        if plain_codes is None:
-            raise RedemptionError(
-                "Plaintext codes no longer available; export is allowed only once "
-                "immediately after generation"
-            )
+        if not batch.export_payload:
+            raise RedemptionError("Batch export payload is unavailable")
+
+        secret = await _resolve_secret(self.session)
+        plain_codes = _decrypt_export_payload(batch.export_payload, secret)
+        code_count = len(plain_codes)
 
         file_name = f"redemption_{batch.batch_no}_{secrets.token_hex(8)}.txt"
         file_path = _export_dir() / file_name
-        # 仅写入尾4位无关的完整明文到临时文件（一次性），不含摘要/密钥
-        file_path.write_text("\n".join(plain_codes) + "\n", encoding="utf-8")
-
-        batch.exported_at = get_beijing_now_naive()
-        await self.session.flush()
-
-        # 消费临时载荷：导出后立即从内存移除，明文不再驻留进程
-        _pending_exports.pop(batch.id, None)
+        try:
+            file_path.write_text("\n".join(plain_codes) + "\n", encoding="utf-8")
+            batch.exported_at = get_beijing_now_naive()
+            batch.export_payload = None
+            await self.session.flush()
+        except Exception:
+            self.delete_export_file(str(file_path))
+            raise
+        finally:
+            plain_codes.clear()
         logger.info(
             f"[redemption] batch {batch.batch_no} exported once to temp file "
-            f"(codes={len(plain_codes)})"
+            f"(codes={code_count})"
         )
         return str(file_path)
 
@@ -418,9 +465,7 @@ class RedemptionService:
         needs_confirmation = False
         if batch.product_type == "plan":
             subscription = await self.session.scalar(
-                select(UserSubscription).where(
-                    UserSubscription.user_id == user_id
-                )
+                select(UserSubscription).where(UserSubscription.user_id == user_id)
             )
             action, _ = EntitlementGrantService._resolve_plan_action(
                 subscription, batch.product_code, now
