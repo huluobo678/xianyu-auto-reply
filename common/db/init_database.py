@@ -39,6 +39,13 @@ from common.models.billing import (
     EntitlementLedger,
     UserSubscription,
 )
+from common.models.connector import (
+    ConnectorAccountBinding,
+    ConnectorCommand,
+    ConnectorDevice,
+    ConnectorEvent,
+    ConnectorReleaseVersion,
+)
 from common.services.billing_catalog import (
     AI_QUOTA_PACKAGES,
     DEFAULT_FEATURE_FLAGS,
@@ -2484,6 +2491,7 @@ class DatabaseInitializer:
 
         # 执行字段迁移
         await self.create_billing_tables()
+        await self.create_connector_tables()
         await self.migrate_columns()
 
         # 执行索引迁移
@@ -2498,6 +2506,22 @@ class DatabaseInitializer:
             UserSubscription.__table__,
             AIQuotaGrant.__table__,
             EntitlementLedger.__table__,
+        )
+        async with async_engine.begin() as conn:
+            for table in tables:
+                await conn.run_sync(
+                    lambda sync_conn, value=table: value.create(
+                        sync_conn, checkfirst=True
+                    )
+                )
+
+    async def create_connector_tables(self):
+        tables = (
+            ConnectorDevice.__table__,
+            ConnectorAccountBinding.__table__,
+            ConnectorCommand.__table__,
+            ConnectorEvent.__table__,
+            ConnectorReleaseVersion.__table__,
         )
         async with async_engine.begin() as conn:
             for table in tables:

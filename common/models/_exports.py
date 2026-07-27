@@ -85,6 +85,13 @@ from common.models.redemption import (
     RedemptionCode,
     RedemptionRecord,
 )
+from common.models.connector import (
+    ConnectorAccountBinding,
+    ConnectorCommand,
+    ConnectorDevice,
+    ConnectorEvent,
+    ConnectorReleaseVersion,
+)
 
 __all__ = [
     "BillingPlan",
@@ -167,4 +174,9 @@ __all__ = [
     "RedemptionBatch",
     "RedemptionCode",
     "RedemptionRecord",
+    "ConnectorDevice",
+    "ConnectorAccountBinding",
+    "ConnectorCommand",
+    "ConnectorEvent",
+    "ConnectorReleaseVersion",
 ]

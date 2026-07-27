@@ -35,6 +35,7 @@ from . import (
     payment,
     popup_announcements,
     confirm_receipt_messages,
+    connectors,
     api_cookie_renew_logs,
     cookie_refresh,
     cookies,
@@ -81,6 +82,7 @@ from . import (
 
 # 创建API路由器
 api_router = APIRouter()
+api_router.include_router(connectors.router)
 
 # 健康检查（放在最前面）
 api_router.include_router(health.router, tags=["健康检查"])  # 已定义prefix="/health"
