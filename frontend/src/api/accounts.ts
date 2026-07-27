@@ -62,6 +62,10 @@ export const getAccountDetailsPaginated = async (
     value: string
     enabled: boolean
     online?: boolean
+    connection_state?: string
+    connection_status?: 'online' | 'connecting' | 'verifying' | 'attention_required' | 'offline'
+    connection_error_code?: string
+    connection_error_message?: string
     auto_confirm: boolean
     scheduled_redelivery?: boolean
     scheduled_rate?: boolean
@@ -134,6 +138,10 @@ export const getAccountDetailsPaginated = async (
       cookie: item.value,
       enabled: item.enabled,
       online: item.online ?? false,
+      connection_state: item.connection_state,
+      connection_status: item.connection_status,
+      connection_error_code: item.connection_error_code,
+      connection_error_message: item.connection_error_message,
       auto_confirm: item.auto_confirm,
       scheduled_redelivery: item.scheduled_redelivery || false,
       scheduled_rate: item.scheduled_rate || false,

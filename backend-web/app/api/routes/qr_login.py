@@ -49,7 +49,7 @@ def _cleanup_session(session_id: str):
 def _build_processed_response(processed_info: dict) -> ApiResponse:
     processed_status = processed_info.get("status")
     processed_message = processed_info.get("message") or (
-        "扫码登录失败" if processed_status == "failed" else "扫码登录已完成"
+        "扫码登录失败" if processed_status == "failed" else "登录信息已保存，正在建立连接"
     )
     return ApiResponse(
         success=True,
@@ -227,7 +227,7 @@ async def get_qr_status(
                     
                     return ApiResponse(
                         success=True,
-                        message="扫码登录成功",
+                        message="登录信息已保存，正在建立连接",
                         data={
                             "status": "success",
                             "account_info": {

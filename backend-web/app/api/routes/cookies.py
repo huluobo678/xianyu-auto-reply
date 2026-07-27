@@ -10,8 +10,10 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile, File, Form, status
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 
 from app.api import deps
 from common.models.user import User
@@ -261,10 +263,16 @@ async def list_cookie_details_paginated(
     # 在线状态：口径与仪表盘“在线账号”一致（websocket 真实连接的账号集合）。
     # 同时用于：①在线/离线筛选条件；②列表每行的 online 字段展示。失败时按空集合处理。
     online_ids: frozenset[str] = frozenset()
+    connection_statuses: dict[str, dict] = {}
     try:
-        online_ids = await DashboardStatsService(session).get_online_account_ids()
+        dashboard_service = DashboardStatsService(session)
+        online_ids, connection_statuses = await asyncio.gather(
+            dashboard_service.get_online_account_ids(),
+            dashboard_service.get_account_connection_statuses(),
+        )
     except Exception:
         online_ids = frozenset()
+        connection_statuses = {}
 
     accounts, total = await account_service.list_accounts_paginated(
         owner_id=owner_id,
@@ -330,12 +338,17 @@ async def list_cookie_details_paginated(
     details = []
     for account in accounts:
         ai_settings = (account.metadata_json or {}).get("ai_reply_settings") or {}
+        connection_status = connection_statuses.get(account.account_id) or {}
         details.append({
             "pk": account.id,  # 数据库主键
             "id": account.account_id,
             "value": account.cookie or "",
             "enabled": _status_to_enabled(account.status),
             "online": account.account_id in online_ids,
+            "connection_state": connection_status.get("connection_state", "unknown"),
+            "connection_status": connection_status.get("connection_status", "offline"),
+            "connection_error_code": connection_status.get("connection_error_code"),
+            "connection_error_message": connection_status.get("connection_error_message"),
             "auto_confirm": bool(account.auto_confirm),
             "scheduled_redelivery": bool(account.scheduled_redelivery),
             "scheduled_rate": bool(account.scheduled_rate),

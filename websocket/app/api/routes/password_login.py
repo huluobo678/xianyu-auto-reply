@@ -152,7 +152,7 @@ def _run_password_login_sync(
                     password_login_sessions[session_id]['verification_url'] = verification_url
                     password_login_sessions[session_id]['screenshot_path'] = None
                     password_login_sessions[session_id]['qr_code_url'] = None
-                    logger.info(f"【{account_id}】人脸认证验证链接已保存: {verification_url}")
+                    logger.info(f"【{account_id}】人脸认证验证链接已安全保存")
                 
                 # 发送通知（在已有事件循环中调度异步任务）
                 try:

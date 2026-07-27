@@ -44,6 +44,9 @@ class DashboardStatsService:
     _online_ids_cache: tuple[float, frozenset[str]] | None = None
     _ONLINE_IDS_CACHE_TTL = 10  # seconds
 
+    _account_connection_statuses_cache: tuple[float, dict[str, dict]] | None = None
+    _ACCOUNT_CONNECTION_STATUSES_CACHE_TTL = 5  # seconds
+
     INACTIVE_ACCOUNT_STATUSES = ("inactive", "disabled", "suspended", "deleted")
     # 已关闭/已退款订单：不计入营收、有效订单与待处理统计
     CLOSED_ORDER_STATUSES = ("cancelled", "已关闭", "refunded", "退款成功", "已退款")
@@ -344,6 +347,34 @@ class DashboardStatsService:
         # 失败也缓存（空集合，10 秒）：避免 websocket 异常时每次账号列表请求都重试拖慢响应
         self.__class__._online_ids_cache = (now, frozenset())
         return frozenset()
+
+    async def get_account_connection_statuses(self) -> dict[str, dict]:
+        """获取账号安全连接状态；失败时返回空映射，不影响账号列表。"""
+        now = time.time()
+        cached = self.__class__._account_connection_statuses_cache
+        if cached is not None:
+            ts, statuses = cached
+            if now - ts < self._ACCOUNT_CONNECTION_STATUSES_CACHE_TTL:
+                return statuses
+
+        try:
+            settings = get_settings()
+            url = f"{settings.websocket_service_url.rstrip('/')}/internal/accounts/connection-stats"
+            response = await asyncio.wait_for(get_http_client().get(url), timeout=3.0)
+            if isinstance(response, dict) and response.get("success"):
+                raw_statuses = (response.get("data") or {}).get("account_statuses") or {}
+                statuses = {
+                    str(account_id): status
+                    for account_id, status in raw_statuses.items()
+                    if isinstance(status, dict)
+                }
+                self.__class__._account_connection_statuses_cache = (now, statuses)
+                return statuses
+        except Exception as exc:
+            logger.warning(f"获取账号连接状态失败: {exc}")
+
+        self.__class__._account_connection_statuses_cache = (now, {})
+        return {}
 
     async def get_admin_dashboard_stats(self, *, current_user_id: int) -> dict[str, int | None]:
         """获取管理员首页全局统计。"""

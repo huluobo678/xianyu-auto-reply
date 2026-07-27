@@ -87,6 +87,10 @@ class CookieTokenManager:
     @last_token_refresh_status.setter
     def last_token_refresh_status(self, value):
         self.parent.last_token_refresh_status = value
+
+    def _set_connection_error(self, code: str | None, message: str | None):
+        self.parent.last_connection_error_code = code
+        self.parent.last_connection_error_message = message
     
     @property
     def device_id(self):
@@ -272,9 +276,12 @@ class CookieTokenManager:
                     if hasattr(self.parent, 'user_id') and self.parent.user_id:
                         current_user_id = self.parent.user_id
 
-                    # 打印要保存的x5sec值
+                    # 仅记录字段数量，禁止输出Cookie值
                     cookies_dict = trans_cookies(self.cookies_str)
-                    logger.warning(f"【{self.cookie_id}】update_config_cookies保存的x5sec: {cookies_dict.get('x5sec', '无')[:80]}...")
+                    logger.info(
+                        f"【{self.cookie_id}】准备更新Cookie，字段数: {len(cookies_dict)}，"
+                        f"包含x5sec: {'是' if cookies_dict.get('x5sec') else '否'}"
+                    )
                     
                     # 使用 update_cookie_account_info 避免覆盖其他字段
                     success = await update_account_cookies_in_db(
@@ -465,7 +472,7 @@ class CookieTokenManager:
                 logger.info(f"【{self.cookie_id}】未找到验证URL，认为不需要滑块验证")
                 return None
 
-            logger.info(f"【{self.cookie_id}】验证URL: {verification_url}")
+            logger.info(f"【{self.cookie_id}】已获取闲鱼安全验证地址")
             
             # 记录风控日志
             log_id = None
@@ -545,8 +552,7 @@ class CookieTokenManager:
 
                 if success and cookies:
                     logger.info(f"【{self.cookie_id}】滑块验证成功，获取到新的cookies")
-                    # 打印滑块验证返回的全部cookies
-                    logger.warning(f"【{self.cookie_id}】滑块验证返回的全部cookies: {cookies}")
+                    logger.info(f"【{self.cookie_id}】安全验证返回Cookie字段数: {len(cookies)}")
                     
                     # 更新风控日志为成功状态
                     captcha_duration = time.time() - captcha_start_time
@@ -628,8 +634,11 @@ class CookieTokenManager:
                         self.cookies_str = cookies_str
                         self.cookies = updated_cookies
                         
-                        # 打印更新后的x5sec值
-                        logger.warning(f"【{self.cookie_id}】准备保存到数据库的x5sec: {updated_cookies.get('x5sec', '无')}")
+                        # 仅记录是否包含关键字段，禁止输出字段值
+                        logger.info(
+                            f"【{self.cookie_id}】准备保存安全验证Cookie，"
+                            f"包含x5sec: {'是' if updated_cookies.get('x5sec') else '否'}"
+                        )
 
                         await self.update_config_cookies()
                         logger.info(f"【{self.cookie_id}】滑块验证成功后，数据库cookies已自动更新")
@@ -809,8 +818,8 @@ class CookieTokenManager:
                     self.last_token_refresh_time = time.time()
                     self.last_token_refresh_status = "success_from_cache"
                     logger.info(f"【{self.cookie_id}】使用数据库缓存的Token和Device ID")
-                    logger.info(f"【{self.cookie_id}】缓存Token: {cached_token}")
                     logger.info(f"【{self.cookie_id}】缓存Device ID: {cached_device_id}")
+                    self._set_connection_error(None, None)
                     return cached_token
             self.restarted_in_browser_refresh = False
 
@@ -823,6 +832,10 @@ class CookieTokenManager:
                 )
                 notification_sent = True
                 self.last_token_refresh_status = "failed_captcha_max_retries"
+                self._set_connection_error(
+                    "xianyu_risk_control_required",
+                    "闲鱼安全验证未通过，请稍后在常用网络重新登录",
+                )
                 return None
 
             # 检查消息接收冷却时间
@@ -920,7 +933,8 @@ class CookieTokenManager:
                     request_duration = time.time() - request_start_time
                     logger.info(f"【{self.cookie_id}】Token刷新API响应: 状态码={response.status}, 耗时={request_duration:.2f}秒")
                     res_json = await response.json()
-                    logger.info(f"【{self.cookie_id}】Token刷新响应: {json.dumps(res_json, ensure_ascii=False)[:500]}")
+                    ret_summary = res_json.get("ret", []) if isinstance(res_json, dict) else []
+                    logger.info(f"【{self.cookie_id}】Token刷新结果: {ret_summary[:3]}")
 
                     # 检查并更新Cookie
                     if 'set-cookie' in response.headers:
@@ -945,8 +959,9 @@ class CookieTokenManager:
                                 self.last_token_refresh_time = time.time()
                                 self.parent.last_message_received_time = 0
                                 logger.warning(f"【{self.cookie_id}】Token刷新成功，已重置消息接收时间标识")
-                                logger.info(f"【{self.cookie_id}】Token刷新成功，新Token: {new_token}")
+                                logger.info(f"【{self.cookie_id}】Token刷新成功")
                                 self.last_token_refresh_status = "success"
+                                self._set_connection_error(None, None)
                                 # 缓存token和device_id到数据库
                                 await self._set_cached_token(new_token, self.device_id)
                                 return new_token
@@ -954,6 +969,11 @@ class CookieTokenManager:
                     # 检查是否需要滑块验证
                     if self.need_captcha_verification(res_json):
                         logger.warning(f"【{self.cookie_id}】检测到需要滑块验证，开始处理...")
+                        self.last_token_refresh_status = "captcha_required"
+                        self._set_connection_error(
+                            "xianyu_risk_control_verifying",
+                            "闲鱼触发安全验证，系统正在处理",
+                        )
                         
                         try:
                             captcha_start_time = time.time()
@@ -969,6 +989,10 @@ class CookieTokenManager:
                                 logger.error(f"【{self.cookie_id}】滑块验证失败")
                                 notification_sent = True
                                 self.last_token_refresh_status = "failed_captcha"
+                                self._set_connection_error(
+                                    "xianyu_risk_control_required",
+                                    "闲鱼安全验证未通过，请稍后在常用网络重新登录",
+                                )
                                 self.current_token = None
                                 await self._delete_cached_token()
                                 return None
@@ -976,6 +1000,10 @@ class CookieTokenManager:
                             logger.error(f"【{self.cookie_id}】滑块验证处理异常: {self._safe_str(captcha_e)}")
                             notification_sent = True
                             self.last_token_refresh_status = "failed_captcha_exception"
+                            self._set_connection_error(
+                                "xianyu_risk_control_required",
+                                "闲鱼安全验证处理失败，请稍后重新登录",
+                            )
                             self.current_token = None
                             await self._delete_cached_token()
                             return None
@@ -1155,8 +1183,8 @@ class CookieTokenManager:
             try:
                 from common.services.cookie_renew_api_service import cookie_renew_api_service
                 logger.info(f"【{self.cookie_id}】先尝试接口续期（silentHasLogin + setLoginSettings）...")
-                # 记录续期前的全量cookies
-                logger.info(f"【{self.cookie_id}】[续期前全量Cookies] {self.cookies_str}")
+                # 不记录完整Cookie，只记录流程状态
+                logger.info(f"【{self.cookie_id}】开始使用现有Cookie执行接口续期")
                 renew_result = await cookie_renew_api_service.renew(self.cookies_str, self.cookie_id)
 
                 # 不管续期是否成功，只要有Cookie字段更新就先写入数据库
@@ -1170,8 +1198,8 @@ class CookieTokenManager:
                         f"{', '.join(renew_result.updated_cookie_names)}"
                     )
 
-                # 记录续期后的全量cookies（不管成功失败都打印）
-                logger.info(f"【{self.cookie_id}】[续期后全量Cookies] {self.cookies_str}")
+                # 不记录续期后的完整Cookie
+                logger.info(f"【{self.cookie_id}】接口续期完成，Cookie已更新")
 
                 if renew_result.success:
                     # 续期成功（可能是接口续期或浏览器续期），跳过密码登录
@@ -1248,7 +1276,7 @@ class CookieTokenManager:
             from app.services.captcha.xianyu_slider_stealth import XianyuSliderStealth
             browser_mode = "有头" if show_browser else "无头"
             logger.info(f"【{self.cookie_id}】开始使用{browser_mode}浏览器进行密码登录刷新Cookie...")
-            logger.info(f"【{self.cookie_id}】使用账号: {username}")
+            logger.info(f"【{self.cookie_id}】已加载账号密码登录配置")
             
             # 在进入线程前捕获事件循环
             main_loop = asyncio.get_running_loop()
@@ -1296,8 +1324,8 @@ class CookieTokenManager:
                 await self._delete_cached_token()
                 
                 new_cookies_str = '; '.join([f"{k}={v}" for k, v in result.items()])
-                # 记录密码登录获取到的新cookies
-                logger.info(f"【{self.cookie_id}】[密码登录获取的新Cookies] {new_cookies_str}")
+                # 不记录密码登录获取到的完整Cookie
+                logger.info(f"【{self.cookie_id}】密码登录成功，Cookie已安全更新")
                 
                 # 记录密码登录时间
                 if hasattr(self.parent, '_last_password_login_time'):

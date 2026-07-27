@@ -149,6 +149,8 @@ class XianyuAsync:
         
         # 添加缺失的属性（CookieTokenManager需要）
         self.last_token_refresh_status = "not_started"
+        self.last_connection_error_code = None
+        self.last_connection_error_message = None
         self.max_captcha_verification_count = 3
         self.last_message_received_time = 0
         self.message_cookie_refresh_cooldown = 300

@@ -14,6 +14,77 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .utils import safe_str
 
 
+_RISK_CONTROL_STATUSES = {
+    "captcha_required": (
+        "xianyu_risk_control_verifying",
+        "闲鱼触发安全验证，系统正在处理",
+    ),
+    "failed_captcha": (
+        "xianyu_risk_control_required",
+        "闲鱼安全验证未通过，请稍后在常用网络重新登录",
+    ),
+    "failed_captcha_exception": (
+        "xianyu_risk_control_required",
+        "闲鱼安全验证处理失败，请稍后重新登录",
+    ),
+    "failed_captcha_max_retries": (
+        "xianyu_risk_control_required",
+        "闲鱼安全验证未通过，请稍后在常用网络重新登录",
+    ),
+}
+
+
+def build_public_connection_status(
+    connection_state: str,
+    token_refresh_status: str | None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> dict[str, str | None]:
+    if connection_state == "connected":
+        return {
+            "connection_status": "online",
+            "connection_error_code": None,
+            "connection_error_message": None,
+        }
+
+    if error_code or error_message:
+        return {
+            "connection_status": (
+                "verifying"
+                if error_code == "xianyu_risk_control_verifying"
+                else "attention_required"
+            ),
+            "connection_error_code": error_code,
+            "connection_error_message": error_message,
+        }
+
+    risk_detail = _RISK_CONTROL_STATUSES.get(token_refresh_status or "")
+    if risk_detail:
+        code, message = risk_detail
+        return {
+            "connection_status": (
+                "verifying"
+                if code == "xianyu_risk_control_verifying"
+                else "attention_required"
+            ),
+            "connection_error_code": code,
+            "connection_error_message": message,
+        }
+
+    if connection_state in {"connecting", "reconnecting"}:
+        return {
+            "connection_status": "connecting",
+            "connection_error_code": None,
+            "connection_error_message": None,
+        }
+
+    return {
+        "connection_status": "offline",
+        "connection_error_code": None,
+        "connection_error_message": None,
+    }
+
+
 class CookieManager:
     """Cookie任务管理器
     
@@ -431,7 +502,14 @@ class CookieManager:
     def get_task_status(self, cookie_id: str) -> Dict[str, Any]:
         """获取任务状态"""
         if cookie_id not in self.tasks:
-            return {"status": "not_started", "running": False, "is_connected": False}
+            return {
+                "status": "not_started",
+                "running": False,
+                "connection_state": "not_started",
+                "is_connected": False,
+                "token_refresh_status": None,
+                **build_public_connection_status("not_started", None),
+            }
         
         task = self.tasks[cookie_id]
         instance = self.instances.get(cookie_id)
@@ -448,12 +526,22 @@ class CookieManager:
             elif hasattr(instance, 'connection_state'):
                 connection_state = instance.connection_state.value
                 is_connected = connection_state == "connected"
-        
+
+        token_refresh_status = getattr(instance, "last_token_refresh_status", None)
+        public_status = build_public_connection_status(
+            connection_state,
+            token_refresh_status,
+            getattr(instance, "last_connection_error_code", None),
+            getattr(instance, "last_connection_error_message", None),
+        )
+
         return {
             "status": "running" if not task.done() else "stopped",
             "running": not task.done(),
             "connection_state": connection_state,
             "is_connected": is_connected,
+            "token_refresh_status": token_refresh_status,
+            **public_status,
         }
 
     def get_connection_stats(self) -> dict:
@@ -467,6 +555,7 @@ class CookieManager:
         """
         by_state: dict = {}
         connected_ids = []
+        account_statuses = {}
         total = 0
         for cookie_id, instance in list(self.instances.items()):
             total += 1
@@ -478,12 +567,14 @@ class CookieManager:
             by_state[state] = by_state.get(state, 0) + 1
             if state == "connected":
                 connected_ids.append(cookie_id)
+            account_statuses[cookie_id] = self.get_task_status(cookie_id)
 
         return {
             "total_instances": total,           # 运行中的账号实例总数
             "connected": by_state.get("connected", 0),  # 真实 WebSocket 已连接数
             "by_state": by_state,               # 各连接状态明细
             "connected_account_ids": connected_ids,
+            "account_statuses": account_statuses,
         }
 
     async def start_all_tasks(self):

@@ -1887,8 +1887,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             try:
                 from common.services.cookie_renew_api_service import cookie_renew_api_service
                 logger.info(f"【内部API】账号 {account_id} 先尝试接口续期...")
-                # 记录续期前的全量cookies
-                logger.info(f"【{account_id}】[续期前全量Cookies] {cookies_str}")
+                logger.info(f"【内部API】账号 {account_id} 开始使用现有Cookie执行接口续期")
                 renew_result = await cookie_renew_api_service.renew(cookies_str, account_id)
 
                 # 不管续期是否成功，有Cookie更新就先写库
@@ -1902,8 +1901,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
                         f"{len(renew_result.updated_cookie_names)} 个字段"
                     )
 
-                # 记录续期后的全量cookies（不管成功失败都打印）
-                logger.info(f"【{account_id}】[续期后全量Cookies] {renew_result.new_cookies_str or cookies_str}")
+                logger.info(f"【内部API】账号 {account_id} 接口续期处理完成")
 
                 if renew_result.success:
                     renew_method_desc = "接口续期" if renew_result.renew_method == "api" else "浏览器续期"
@@ -1984,8 +1982,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
         if result:
             # 登录成功，更新数据库中的Cookie
             new_cookies_str = '; '.join([f"{k}={v}" for k, v in result.items()])
-            # 记录密码登录获取到的新cookies
-            logger.info(f"【{account_id}】[密码登录获取的新Cookies] {new_cookies_str}")
+            logger.info(f"【内部API】账号 {account_id} 密码登录成功，Cookie已安全更新")
             
             success = db_manager.update_cookie_account_info(
                 account_id,

@@ -507,11 +507,7 @@ export function Accounts() {
             clearQrCheck()
             addToast({
               type: 'success',
-              message: result.account_info?.is_new_account
-                ? `新账号 ${result.account_info.account_id} 添加成功`
-                : result.account_info?.account_id
-                  ? `账号 ${result.account_info.account_id} 登录成功`
-                  : '账号登录成功',
+              message: result.message || '登录信息已保存，正在建立连接',
             })
             setTimeout(() => {
               closeModal()
@@ -2230,14 +2226,39 @@ export function Accounts() {
                       </div>
                     </td>
                     <td>
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded ${
-                        account.online
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                          : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
-                      }`}>
-                        <span className={`status-dot ${account.online ? 'status-dot-success' : 'status-dot-danger'}`} />
-                        {account.online ? '在线' : '离线'}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span
+                          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded ${
+                            account.online
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                              : account.connection_status === 'attention_required'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                : account.connection_status === 'verifying' || account.connection_status === 'connecting'
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                          }`}
+                          title={account.connection_error_message || undefined}
+                        >
+                          <span className={`status-dot ${account.online ? 'status-dot-success' : 'status-dot-danger'}`} />
+                          {account.online
+                            ? '在线'
+                            : account.connection_status === 'attention_required'
+                              ? '需验证'
+                              : account.connection_status === 'verifying'
+                                ? '验证中'
+                                : account.connection_status === 'connecting'
+                                  ? '连接中'
+                                  : '离线'}
+                        </span>
+                        {account.connection_error_message && (
+                          <span
+                            className="max-w-[180px] truncate text-[11px] text-amber-600 dark:text-amber-400"
+                            title={account.connection_error_message}
+                          >
+                            {account.connection_error_message}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded ${
@@ -2618,7 +2639,7 @@ export function Accounts() {
                   <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
                     <Power className="w-7 h-7" />
                   </div>
-                  <p className="font-medium">登录成功！</p>
+                  <p className="font-medium">登录信息已保存，正在建立连接</p>
                 </div>
               )}
               {qrStatus === 'expired' && (
