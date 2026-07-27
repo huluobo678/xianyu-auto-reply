@@ -2278,7 +2278,7 @@ export function Accounts() {
                             {account.connection_error_message}
                           </span>
                         )}
-                        {account.connection_status === 'attention_required' && (
+                        {account.enabled !== false && !account.online && (
                           <button
                             type="button"
                             onClick={() => handleRecheckConnection(account)}
@@ -2286,7 +2286,9 @@ export function Accounts() {
                             className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-400"
                           >
                             <RefreshCw className={`w-3 h-3 ${recheckingAccountId === account.id ? 'animate-spin' : ''}`} />
-                            已完成验证，重新检测
+                            {account.connection_status === 'attention_required'
+                              ? '已完成验证，重新检测'
+                              : '重新检测连接'}
                           </button>
                         )}
                       </div>

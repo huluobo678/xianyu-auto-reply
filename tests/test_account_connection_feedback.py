@@ -204,7 +204,9 @@ class AccountConnectionFeedbackTests(unittest.TestCase):
 
         self.assertIn("recheckAccountConnection", api_source)
         self.assertIn("${id}/recheck-connection", api_source)
+        self.assertIn("account.enabled !== false && !account.online", page_source)
         self.assertIn("已完成验证，重新检测", page_source)
+        self.assertIn("重新检测连接", page_source)
 
 
 if __name__ == "__main__":
