@@ -31,6 +31,10 @@ _RISK_CONTROL_STATUSES = {
         "xianyu_risk_control_required",
         "闲鱼安全验证未通过，请稍后在常用网络重新登录",
     ),
+    "risk_control_cooldown": (
+        "xianyu_risk_control_required",
+        "闲鱼安全验证未通过，已暂停自动重试，请稍后重新登录",
+    ),
 }
 
 

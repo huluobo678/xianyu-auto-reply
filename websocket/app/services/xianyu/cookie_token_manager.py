@@ -91,6 +91,17 @@ class CookieTokenManager:
     def _set_connection_error(self, code: str | None, message: str | None):
         self.parent.last_connection_error_code = code
         self.parent.last_connection_error_message = message
+
+    def _start_risk_control_cooldown(self, seconds: int = 30 * 60):
+        self.parent.risk_control_cooldown_until = time.time() + seconds
+        self.last_token_refresh_status = "risk_control_cooldown"
+        self._set_connection_error(
+            "xianyu_risk_control_required",
+            "闲鱼安全验证未通过，已暂停自动重试，请稍后重新登录",
+        )
+
+    def _clear_risk_control_cooldown(self):
+        self.parent.risk_control_cooldown_until = 0.0
     
     @property
     def device_id(self):
@@ -797,6 +808,15 @@ class CookieTokenManager:
         notification_sent = False
         
         try:
+            cooldown_until = getattr(self.parent, "risk_control_cooldown_until", 0.0)
+            if cooldown_until > time.time():
+                self.last_token_refresh_status = "risk_control_cooldown"
+                self._set_connection_error(
+                    "xianyu_risk_control_required",
+                    "闲鱼安全验证未通过，已暂停自动重试，请稍后重新登录",
+                )
+                return None
+
             # 检查账号是否已禁用
             from app.services.captcha.concurrency import should_skip_account
             if should_skip_account(self.cookie_id):
@@ -819,6 +839,7 @@ class CookieTokenManager:
                     self.last_token_refresh_status = "success_from_cache"
                     logger.info(f"【{self.cookie_id}】使用数据库缓存的Token和Device ID")
                     logger.info(f"【{self.cookie_id}】缓存Device ID: {cached_device_id}")
+                    self._clear_risk_control_cooldown()
                     self._set_connection_error(None, None)
                     return cached_token
             self.restarted_in_browser_refresh = False
@@ -831,11 +852,7 @@ class CookieTokenManager:
                     "captcha_max_retries_exceeded"
                 )
                 notification_sent = True
-                self.last_token_refresh_status = "failed_captcha_max_retries"
-                self._set_connection_error(
-                    "xianyu_risk_control_required",
-                    "闲鱼安全验证未通过，请稍后在常用网络重新登录",
-                )
+                self._start_risk_control_cooldown()
                 return None
 
             # 检查消息接收冷却时间
@@ -961,6 +978,7 @@ class CookieTokenManager:
                                 logger.warning(f"【{self.cookie_id}】Token刷新成功，已重置消息接收时间标识")
                                 logger.info(f"【{self.cookie_id}】Token刷新成功")
                                 self.last_token_refresh_status = "success"
+                                self._clear_risk_control_cooldown()
                                 self._set_connection_error(None, None)
                                 # 缓存token和device_id到数据库
                                 await self._set_cached_token(new_token, self.device_id)
@@ -988,22 +1006,14 @@ class CookieTokenManager:
                             else:
                                 logger.error(f"【{self.cookie_id}】滑块验证失败")
                                 notification_sent = True
-                                self.last_token_refresh_status = "failed_captcha"
-                                self._set_connection_error(
-                                    "xianyu_risk_control_required",
-                                    "闲鱼安全验证未通过，请稍后在常用网络重新登录",
-                                )
+                                self._start_risk_control_cooldown()
                                 self.current_token = None
                                 await self._delete_cached_token()
                                 return None
                         except Exception as captcha_e:
                             logger.error(f"【{self.cookie_id}】滑块验证处理异常: {self._safe_str(captcha_e)}")
                             notification_sent = True
-                            self.last_token_refresh_status = "failed_captcha_exception"
-                            self._set_connection_error(
-                                "xianyu_risk_control_required",
-                                "闲鱼安全验证处理失败，请稍后重新登录",
-                            )
+                            self._start_risk_control_cooldown()
                             self.current_token = None
                             await self._delete_cached_token()
                             return None

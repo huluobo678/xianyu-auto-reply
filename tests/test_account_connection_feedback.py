@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import time
 import types
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ package = types.ModuleType(PACKAGE_NAME)
 package.__path__ = [str(SERVICE_ROOT)]
 sys.modules[PACKAGE_NAME] = package
 
-for module_name in ("utils", "cookie_manager"):
+for module_name in ("utils", "cookie_manager", "cookie_token_manager"):
     spec = importlib.util.spec_from_file_location(
         f"{PACKAGE_NAME}.{module_name}",
         SERVICE_ROOT / f"{module_name}.py",
@@ -28,6 +29,7 @@ for module_name in ("utils", "cookie_manager"):
 cookie_manager_module = sys.modules[f"{PACKAGE_NAME}.cookie_manager"]
 CookieManager = cookie_manager_module.CookieManager
 build_public_connection_status = cookie_manager_module.build_public_connection_status
+CookieTokenManager = sys.modules[f"{PACKAGE_NAME}.cookie_token_manager"].CookieTokenManager
 
 
 class _Task:
@@ -56,6 +58,30 @@ class _Instance:
         self.last_connection_error_message = None
 
 
+class _CooldownParent:
+    def __init__(self):
+        self.cookie_id = "account-1"
+        self.risk_control_cooldown_until = time.time() + 60
+        self.last_token_refresh_status = "failed_captcha"
+        self.last_connection_error_code = None
+        self.last_connection_error_message = None
+
+
+class RiskControlCooldownBehaviorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refresh_token_short_circuits_during_cooldown(self):
+        parent = _CooldownParent()
+        manager = CookieTokenManager(parent)
+
+        result = await manager.refresh_token()
+
+        self.assertIsNone(result)
+        self.assertEqual(parent.last_token_refresh_status, "risk_control_cooldown")
+        self.assertEqual(
+            parent.last_connection_error_code,
+            "xianyu_risk_control_required",
+        )
+
+
 class AccountConnectionFeedbackTests(unittest.TestCase):
     def test_connected_state_hides_stale_error(self):
         result = build_public_connection_status(
@@ -81,6 +107,15 @@ class AccountConnectionFeedbackTests(unittest.TestCase):
             "xianyu_risk_control_required",
         )
         self.assertIn("安全验证未通过", result["connection_error_message"])
+
+    def test_risk_control_cooldown_requires_attention(self):
+        result = build_public_connection_status(
+            "disconnected",
+            "risk_control_cooldown",
+        )
+
+        self.assertEqual(result["connection_status"], "attention_required")
+        self.assertIn("暂停自动重试", result["connection_error_message"])
 
     def test_connection_stats_exposes_safe_account_status(self):
         manager = CookieManager()
@@ -136,6 +171,15 @@ class AccountConnectionFeedbackTests(unittest.TestCase):
 
         self.assertIn("登录信息已保存，正在建立连接", source)
         self.assertNotIn('message="扫码登录成功"', source)
+
+    def test_risk_control_failure_starts_cooldown(self):
+        source = (
+            REPO_ROOT / "websocket/app/services/xianyu/cookie_token_manager.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("def _start_risk_control_cooldown", source)
+        self.assertIn('self.last_token_refresh_status = "risk_control_cooldown"', source)
+        self.assertGreaterEqual(source.count("self._start_risk_control_cooldown()"), 3)
 
 
 if __name__ == "__main__":
