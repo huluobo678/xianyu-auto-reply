@@ -505,6 +505,38 @@ async def update_account_cookie(
     return ApiResponse(success=True, message="Cookie 已更新")
 
 
+@router.post("/{account_id}/recheck-connection", response_model=ApiResponse)
+async def recheck_account_connection(
+    account_id: str,
+    current_user: User = Depends(deps.get_current_active_user),
+    account_service: AccountService = Depends(deps.get_account_service),
+) -> ApiResponse:
+    account = await _get_account_or_404(current_user, account_id, account_service)
+    if not _status_to_enabled(account.status):
+        return ApiResponse(success=False, message="账号已禁用，请先启用账号")
+
+    from app.services.websocket_client import websocket_client
+
+    status_result = await websocket_client.get_account_status(account_id)
+    status_data = (
+        status_result.get("data") or {}
+        if isinstance(status_result, dict)
+        else {}
+    )
+    connection_status = status_data.get("connection_status")
+    if connection_status == "online":
+        return ApiResponse(success=True, message="账号当前已在线，无需重新检测")
+    if connection_status in {"connecting", "verifying"}:
+        return ApiResponse(success=True, message="账号正在建立连接，请勿重复操作")
+
+    restart_result = await websocket_client.restart_account(account_id)
+    if not isinstance(restart_result, dict) or not restart_result.get("success"):
+        message = restart_result.get("message") if isinstance(restart_result, dict) else None
+        return ApiResponse(success=False, message=message or "重新检测连接失败")
+
+    return ApiResponse(success=True, message="已开始重新检测，请等待 1～2 分钟")
+
+
 @router.put("/{account_id}/status", response_model=ApiResponse)
 async def update_account_status(
     account_id: str,

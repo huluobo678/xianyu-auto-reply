@@ -181,6 +181,31 @@ class AccountConnectionFeedbackTests(unittest.TestCase):
         self.assertIn('self.last_token_refresh_status = "risk_control_cooldown"', source)
         self.assertGreaterEqual(source.count("self._start_risk_control_cooldown()"), 3)
 
+    def test_manual_recheck_is_owner_scoped_and_reuses_restart(self):
+        source = (REPO_ROOT / "backend-web/app/api/routes/cookies.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('@router.post("/{account_id}/recheck-connection"', source)
+        self.assertIn(
+            "account = await _get_account_or_404(current_user, account_id, account_service)",
+            source,
+        )
+        self.assertIn('connection_status in {"connecting", "verifying"}', source)
+        self.assertIn("await websocket_client.restart_account(account_id)", source)
+
+    def test_frontend_exposes_completed_verification_recheck(self):
+        api_source = (REPO_ROOT / "frontend/src/api/accounts.ts").read_text(
+            encoding="utf-8"
+        )
+        page_source = (
+            REPO_ROOT / "frontend/src/pages/accounts/Accounts.tsx"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("recheckAccountConnection", api_source)
+        self.assertIn("${id}/recheck-connection", api_source)
+        self.assertIn("已完成验证，重新检测", page_source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, QrCode, Key, Edit2, Trash2, Power, PowerOff, X, Loader2, Clock, CheckCircle, MessageSquare, Bot, Globe, Timer, ScanFace, ChevronLeft, ChevronRight, ChevronDown, ImagePlus, Filter, Repeat, MoreHorizontal, PackageCheck, Star, ShieldCheck, Flower2, Eye, EyeOff, Ban, Download, Upload, Send } from 'lucide-react'
-import { getAccountDetailsPaginated, deleteAccount, updateAccountCookie, updateAccountStatus, updateAccountsStatusBatch, closeAccountsNoticeBatch, clearTokenCacheBatch, updateAccountRemark, addAccount, generateQRLogin, checkQRLoginStatus, passwordLogin, checkPasswordLoginStatus, updateAccountAutoConfirm, updateAccountPauseDuration, updateAccountMessageExpireTime, updateAccountReplyDelay, updateAccountLoginInfo, updateAccountScheduledRedelivery, updateAccountScheduledRate, updateAccountAutoPolish, updateAccountConfirmBeforeSend, updateAccountSendBeforeConfirm, updateAccountAutoRedFlower, updateAccountAiReplyBlockOrderedUsers, getAIReplySettings, updateAIReplySettings, testAIConnection, fetchAIModels, AI_PROVIDER_OPTIONS, AI_PROVIDER_DEFAULT_BASE_URLS, getProxyConfig, updateProxyConfig, getFaceVerificationScreenshot, deleteFaceVerificationScreenshot, getConfirmReceiptMessage, updateConfirmReceiptMessage, uploadConfirmReceiptImage, exportAccountsExcel, importAccountsExcel, type AIProviderType, type AIModelOption, type ProxyConfig, type FaceVerificationScreenshot, type AccountFilterParams } from '@/api/accounts'
+import { getAccountDetailsPaginated, deleteAccount, updateAccountCookie, recheckAccountConnection, updateAccountStatus, updateAccountsStatusBatch, closeAccountsNoticeBatch, clearTokenCacheBatch, updateAccountRemark, addAccount, generateQRLogin, checkQRLoginStatus, passwordLogin, checkPasswordLoginStatus, updateAccountAutoConfirm, updateAccountPauseDuration, updateAccountMessageExpireTime, updateAccountReplyDelay, updateAccountLoginInfo, updateAccountScheduledRedelivery, updateAccountScheduledRate, updateAccountAutoPolish, updateAccountConfirmBeforeSend, updateAccountSendBeforeConfirm, updateAccountAutoRedFlower, updateAccountAiReplyBlockOrderedUsers, getAIReplySettings, updateAIReplySettings, testAIConnection, fetchAIModels, AI_PROVIDER_OPTIONS, AI_PROVIDER_DEFAULT_BASE_URLS, getProxyConfig, updateProxyConfig, getFaceVerificationScreenshot, deleteFaceVerificationScreenshot, getConfirmReceiptMessage, updateConfirmReceiptMessage, uploadConfirmReceiptImage, exportAccountsExcel, importAccountsExcel, type AIProviderType, type AIModelOption, type ProxyConfig, type FaceVerificationScreenshot, type AccountFilterParams } from '@/api/accounts'
 import { getDefaultReply, updateDefaultReply, uploadDefaultReplyImage } from '@/api/keywords'
 import { getAutoRateConfig, updateAutoRateConfig } from '@/api/autoRate'
 import { checkAdminDefaultPassword } from '@/api/auth'
@@ -108,6 +108,7 @@ export function Accounts() {
   // 更多操作下拉菜单状态
   const [moreMenuAccountId, setMoreMenuAccountId] = useState<string | null>(null)
   const [moreMenuPosition, setMoreMenuPosition] = useState<{ top: number; right: number }>({ top: 0, right: 0 })
+  const [recheckingAccountId, setRecheckingAccountId] = useState<string | null>(null)
 
   // 默认回复管理状态
   const [defaultReplyAccount, setDefaultReplyAccount] = useState<AccountWithKeywordCount | null>(null)
@@ -691,6 +692,25 @@ export function Accounts() {
       await loadAccounts()
     } catch (error) {
       addToast({ type: 'error', message: getApiErrorMessage(error, '操作失败') })
+    }
+  }
+
+  const handleRecheckConnection = async (account: AccountDetail) => {
+    if (recheckingAccountId === account.id) return
+
+    setRecheckingAccountId(account.id)
+    try {
+      const result = await recheckAccountConnection(account.id)
+      if (!result.success) {
+        addToast({ type: 'error', message: result.message || '重新检测失败' })
+        return
+      }
+      addToast({ type: 'success', message: result.message || '已开始重新检测连接' })
+      await loadAccounts()
+    } catch (error) {
+      addToast({ type: 'error', message: getApiErrorMessage(error, '重新检测失败') })
+    } finally {
+      setRecheckingAccountId(null)
     }
   }
 
@@ -2257,6 +2277,17 @@ export function Accounts() {
                           >
                             {account.connection_error_message}
                           </span>
+                        )}
+                        {account.connection_status === 'attention_required' && (
+                          <button
+                            type="button"
+                            onClick={() => handleRecheckConnection(account)}
+                            disabled={recheckingAccountId === account.id}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-400"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${recheckingAccountId === account.id ? 'animate-spin' : ''}`} />
+                            已完成验证，重新检测
+                          </button>
                         )}
                       </div>
                     </td>
@@ -4061,6 +4092,15 @@ export function Accounts() {
               )}
             </div>
             <div className="modal-footer">
+              <button
+                type="button"
+                onClick={() => handleRecheckConnection(faceVerificationAccount)}
+                disabled={recheckingAccountId === faceVerificationAccount.id}
+                className="btn-ios-primary"
+              >
+                <RefreshCw className={`w-4 h-4 ${recheckingAccountId === faceVerificationAccount.id ? 'animate-spin' : ''}`} />
+                已完成验证，重新检测
+              </button>
               <button type="button" onClick={closeModal} className="btn-ios-secondary">
                 关闭
               </button>

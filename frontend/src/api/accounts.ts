@@ -195,6 +195,11 @@ export const updateAccountCookie = (id: string, value: string): Promise<ApiRespo
   return put(`${COOKIE_PREFIX}/${id}`, { id, value })
 }
 
+// 用户完成闲鱼安全验证后，单次重新检测连接
+export const recheckAccountConnection = (id: string): Promise<ApiResponse> => {
+  return post(`${COOKIE_PREFIX}/${id}/recheck-connection`)
+}
+
 // 更新账号启用/禁用状态
 export const updateAccountStatus = (id: string, enabled: boolean): Promise<ApiResponse> => {
   return put(`${COOKIE_PREFIX}/${id}/status`, { enabled })
