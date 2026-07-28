@@ -1,4 +1,4 @@
-"""
+﻿"""
 SQLAlchemy模型导出
 
 统一导出所有数据模型，由 __init__.py 通过 from ._exports import * 重新导出。
@@ -87,9 +87,12 @@ from common.models.redemption import (
 )
 from common.models.connector import (
     ConnectorAccountBinding,
+    ConnectorBindingCode,
     ConnectorCommand,
+    ConnectorConversationControl,
     ConnectorDevice,
     ConnectorEvent,
+    ConnectorMessage,
     ConnectorReleaseVersion,
 )
 
@@ -176,7 +179,10 @@ __all__ = [
     "RedemptionRecord",
     "ConnectorDevice",
     "ConnectorAccountBinding",
+    "ConnectorBindingCode",
     "ConnectorCommand",
+    "ConnectorConversationControl",
     "ConnectorEvent",
+    "ConnectorMessage",
     "ConnectorReleaseVersion",
 ]

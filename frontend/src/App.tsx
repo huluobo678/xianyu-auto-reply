@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState, useRef } from 'react'
+﻿import React, { Suspense, useEffect, useState, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { MainLayout } from '@/components/layout/MainLayout'
@@ -23,7 +23,7 @@ import { GetSourceCode } from '@/pages/auth/GetSourceCode'
 // 页面组件懒加载，按需加载提升首屏速度
 const Dashboard = React.lazy(() => import('@/pages/dashboard/Dashboard').then(m => ({ default: m.Dashboard })))
 const DataOverview = React.lazy(() => import('@/pages/data_analysis/DataOverview').then(m => ({ default: m.DataOverview })))
-const Accounts = React.lazy(() => import('@/pages/accounts/Accounts').then(m => ({ default: m.Accounts })))
+const Accounts = React.lazy(() => import('@/pages/accounts/ConnectorCenter').then(m => ({ default: m.Accounts })))
 const Items = React.lazy(() => import('@/pages/items/Items').then(m => ({ default: m.Items })))
 const Orders = React.lazy(() => import('@/pages/orders/Orders').then(m => ({ default: m.Orders })))
 const Keywords = React.lazy(() => import('@/pages/keywords/Keywords').then(m => ({ default: m.Keywords })))
@@ -58,7 +58,6 @@ const AgentOrders = React.lazy(() => import('@/pages/distribution/AgentOrders').
 const CardPickup = React.lazy(() => import('@/pages/distribution/CardPickup').then(m => ({ default: m.CardPickup })))
 
 // 共享多人扫码登录
-const SharedScanManager = React.lazy(() => import('@/pages/shared-scan/SharedScanManager').then(m => ({ default: m.SharedScanManager })))
 const SharedScanPage = React.lazy(() => import('@/pages/shared-scan/SharedScanPage').then(m => ({ default: m.SharedScanPage })))
 
 // 商品发布页面懒加载
@@ -338,7 +337,7 @@ function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="data-analysis/overview" element={<DataOverview />} />
             <Route path="accounts" element={<Accounts />} />
-            <Route path="accounts/shared-scan" element={<SharedScanManager />} />
+            <Route path="accounts/shared-scan" element={<Navigate to="/accounts" replace />} />
             <Route path="items" element={<Items />} />
             <Route path="orders" element={<Orders />} />
             <Route path="keywords" element={<Keywords />} />

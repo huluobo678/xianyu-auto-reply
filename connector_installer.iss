@@ -1,5 +1,7 @@
 #define AppName "Xianyu Local Connector"
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+#define AppVersion "0.2.0"
+#endif
 #define AppPublisher "Xianyu Auto Reply"
 #define BuildRoot "D:\AI\Agent_Data\Generated_Files\xianyu-local-connector"
 
@@ -16,24 +18,29 @@ OutputBaseFilename=XianyuConnectorSetup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+MinVersion=10.0.10240
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 CloseApplications=force
-RestartApplications=no
+CloseApplicationsFilter=XianyuConnector.exe
+RestartApplications=yes
 UninstallDisplayIcon={app}\XianyuConnector.exe
+SetupLogging=yes
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
-Name: "startup"; Description: "Start after Windows sign-in"; GroupDescription: "Startup:"; Flags: unchecked
+Name: "desktopicon"; Description: "????????"; GroupDescription: "?????"; Flags: checkedonce
+Name: "startup"; Description: "?? Windows ????????"; GroupDescription: "?????"; Flags: unchecked
 
 [Files]
-Source: "{#BuildRoot}\XianyuConnector.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildRoot}\dist\XianyuConnector\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Tasks: desktopicon
-Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Tasks: startup
+Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Parameters: "--startup"; Tasks: startup
 
 [Run]
 Filename: "{app}\XianyuConnector.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
@@ -46,8 +53,10 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     DataDir := ExpandConstant('{localappdata}\XianyuConnector');
-    if DirExists(DataDir) and
-       (MsgBox('Delete local device credentials as well?', mbConfirmation, MB_YESNO) = IDYES) then
+    if DirExists(DataDir) and (not UninstallSilent) and
+       (MsgBox('???????????????????? Cookie/Token ???????' + #13#10 + #13#10 +
+         '???????????????????????????????',
+         mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDNO) then
       DelTree(DataDir, True, True, True);
   end;
 end;

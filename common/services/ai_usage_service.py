@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 from dataclasses import dataclass
@@ -247,64 +247,71 @@ class AIUsageService:
 
     @staticmethod
     async def commit(session: AsyncSession, request_id: int, auto_reply_log_id: int | None = None) -> bool:
-        now = get_beijing_now_naive()
         async with session.begin():
-            request = await session.scalar(select(AIUsageRequest).where(AIUsageRequest.id == request_id).with_for_update())
-            if not request or request.status == "committed":
-                return bool(request and request.status == "committed")
-            if request.status != "reserved":
-                return False
-            user_usage = await session.scalar(
-                select(AIUserMonthlyUsage).where(
-                    AIUserMonthlyUsage.user_id == request.user_id,
-                    AIUserMonthlyUsage.period_start == request.period_start,
-                ).with_for_update()
-            )
-            account_usage = await session.scalar(
-                select(AIAccountMonthlyUsage).where(
-                    AIAccountMonthlyUsage.account_pk == request.account_pk,
-                    AIAccountMonthlyUsage.period_start == request.period_start,
-                ).with_for_update()
-            )
-            cost = Decimal(request.estimated_cost or 0)
-            user_usage.reserved_replies = max(0, user_usage.reserved_replies - 1)
-            user_usage.effective_replies += 1
-            user_usage.estimated_cost = Decimal(user_usage.estimated_cost or 0) + cost
-            account_usage.reserved_replies = max(0, account_usage.reserved_replies - 1)
-            account_usage.effective_replies += 1
-            account_usage.estimated_cost = Decimal(account_usage.estimated_cost or 0) + cost
-            request.status = "committed"
-            request.auto_reply_log_id = auto_reply_log_id
-            request.committed_at = now
-            await AIUsageService._mark_thresholds(session, request.user_id, user_usage, now)
-            return True
+            return await AIUsageService.commit_locked(session, request_id, auto_reply_log_id)
+
+    @staticmethod
+    async def commit_locked(session: AsyncSession, request_id: int, auto_reply_log_id: int | None = None) -> bool:
+        now = get_beijing_now_naive()
+        request = await session.scalar(select(AIUsageRequest).where(AIUsageRequest.id == request_id).with_for_update())
+        if not request or request.status == "committed":
+            return bool(request and request.status == "committed")
+        if request.status != "reserved":
+            return False
+        user_usage = await session.scalar(
+            select(AIUserMonthlyUsage).where(
+                AIUserMonthlyUsage.user_id == request.user_id,
+                AIUserMonthlyUsage.period_start == request.period_start,
+            ).with_for_update()
+        )
+        account_usage = await session.scalar(
+            select(AIAccountMonthlyUsage).where(
+                AIAccountMonthlyUsage.account_pk == request.account_pk,
+                AIAccountMonthlyUsage.period_start == request.period_start,
+            ).with_for_update()
+        )
+        cost = Decimal(request.estimated_cost or 0)
+        user_usage.reserved_replies = max(0, user_usage.reserved_replies - 1)
+        user_usage.effective_replies += 1
+        user_usage.estimated_cost = Decimal(user_usage.estimated_cost or 0) + cost
+        account_usage.reserved_replies = max(0, account_usage.reserved_replies - 1)
+        account_usage.effective_replies += 1
+        account_usage.estimated_cost = Decimal(account_usage.estimated_cost or 0) + cost
+        request.status = "committed"
+        request.auto_reply_log_id = auto_reply_log_id
+        request.committed_at = now
+        await AIUsageService._mark_thresholds(session, request.user_id, user_usage, now)
+        return True
 
     @staticmethod
     async def release(session: AsyncSession, request_id: int, reason: str) -> bool:
         async with session.begin():
-            request = await session.scalar(select(AIUsageRequest).where(AIUsageRequest.id == request_id).with_for_update())
-            if not request or request.status != "reserved":
-                return False
-            user_usage = await session.scalar(
-                select(AIUserMonthlyUsage).where(
-                    AIUserMonthlyUsage.user_id == request.user_id,
-                    AIUserMonthlyUsage.period_start == request.period_start,
-                ).with_for_update()
-            )
-            account_usage = await session.scalar(
-                select(AIAccountMonthlyUsage).where(
-                    AIAccountMonthlyUsage.account_pk == request.account_pk,
-                    AIAccountMonthlyUsage.period_start == request.period_start,
-                ).with_for_update()
-            )
-            user_usage.reserved_replies = max(0, user_usage.reserved_replies - 1)
-            account_usage.reserved_replies = max(0, account_usage.reserved_replies - 1)
-            await AIUsageService._restore_quota_grant(session, getattr(request, "quota_grant_id", None))
-            request.status = "released"
-            request.release_reason = reason[:64]
-            request.released_at = get_beijing_now_naive()
-            return True
+            return await AIUsageService.release_locked(session, request_id, reason)
 
+    @staticmethod
+    async def release_locked(session: AsyncSession, request_id: int, reason: str) -> bool:
+        request = await session.scalar(select(AIUsageRequest).where(AIUsageRequest.id == request_id).with_for_update())
+        if not request or request.status != "reserved":
+            return False
+        user_usage = await session.scalar(
+            select(AIUserMonthlyUsage).where(
+                AIUserMonthlyUsage.user_id == request.user_id,
+                AIUserMonthlyUsage.period_start == request.period_start,
+            ).with_for_update()
+        )
+        account_usage = await session.scalar(
+            select(AIAccountMonthlyUsage).where(
+                AIAccountMonthlyUsage.account_pk == request.account_pk,
+                AIAccountMonthlyUsage.period_start == request.period_start,
+            ).with_for_update()
+        )
+        user_usage.reserved_replies = max(0, user_usage.reserved_replies - 1)
+        account_usage.reserved_replies = max(0, account_usage.reserved_replies - 1)
+        await AIUsageService._restore_quota_grant(session, getattr(request, "quota_grant_id", None))
+        request.status = "released"
+        request.release_reason = reason[:64]
+        request.released_at = get_beijing_now_naive()
+        return True
     @staticmethod
     async def _ensure_usage_rows(session: AsyncSession, account: XYAccount, period: date) -> None:
         await session.execute(

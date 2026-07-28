@@ -1,4 +1,4 @@
-"""
+﻿"""
 WebSocket 服务客户端
 
 功能：
@@ -24,6 +24,16 @@ class WebSocketServiceClient:
         self.base_url = settings.websocket_service_url.rstrip('/')
         self.http_client = get_http_client()
 
+    async def decide_connector_reply(self, payload: dict) -> dict:
+        """调用云端规则/AI引擎，只生成决策，不发送闲鱼消息。"""
+        try:
+            return await self.http_client.post(
+                f"{self.base_url}/internal/connector/reply-decision",
+                json=payload,
+            )
+        except Exception as exc:
+            logger.error("本地连接器云端决策失败: %s", exc)
+            return {"success": False, "message": str(exc)}
     async def start_account(self, account_id: str, cookie_value: str = None, user_id: int = None) -> dict:
         """启动账号任务
         

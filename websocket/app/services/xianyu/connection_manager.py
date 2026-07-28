@@ -8,6 +8,7 @@ WebSocket连接管理模块
 4. 重连逻辑
 """
 import asyncio
+import inspect
 import json
 import random
 import time
@@ -211,53 +212,15 @@ class ConnectionManager:
                 logger.warning(f"【{self.cookie_id}】将尝试不使用代理进行WebSocket连接")
                 proxy_sock = None
 
-        try:
-            # 尝试使用extra_headers参数
-            connect_kwargs = {
-                'extra_headers': headers,
-                **timeout_kwargs,
-            }
-            if proxy_sock:
-                connect_kwargs['sock'] = proxy_sock
-                
-            return websockets.connect(
-                self.xianyu.base_url,
-                **connect_kwargs
-            )
-        except Exception as e:
-            # 捕获所有异常类型
-            error_msg = str(e)
-            logger.warning(f"【{self.cookie_id}】extra_headers参数失败: {error_msg}")
-
-            if "extra_headers" in error_msg or "unexpected keyword argument" in error_msg:
-                logger.warning(f"【{self.cookie_id}】websockets库不支持extra_headers参数,尝试additional_headers")
-                # 使用additional_headers参数(较新版本)
-                try:
-                    connect_kwargs = {
-                        'additional_headers': headers,
-                        **timeout_kwargs,
-                    }
-                    if proxy_sock:
-                        connect_kwargs['sock'] = proxy_sock
-                        
-                    return websockets.connect(
-                        self.xianyu.base_url,
-                        **connect_kwargs
-                    )
-                except Exception as e2:
-                    error_msg2 = str(e2)
-                    logger.warning(f"【{self.cookie_id}】additional_headers参数失败: {error_msg2}")
-
-                    if "additional_headers" in error_msg2 or "unexpected keyword argument" in error_msg2:
-                        # 如果都不支持,则不传递headers（仍然带上 timeout_kwargs）
-                        logger.warning(f"【{self.cookie_id}】websockets库不支持headers参数,使用基础连接模式")
-                        if proxy_sock:
-                            return websockets.connect(self.xianyu.base_url, sock=proxy_sock, **timeout_kwargs)
-                        return websockets.connect(self.xianyu.base_url, **timeout_kwargs)
-                    else:
-                        raise e2
-            else:
-                raise e
+        connect_parameters = inspect.signature(websockets.connect).parameters
+        header_parameter = "additional_headers" if "additional_headers" in connect_parameters else "extra_headers"
+        connect_kwargs = {
+            header_parameter: headers,
+            **timeout_kwargs,
+        }
+        if proxy_sock:
+            connect_kwargs["sock"] = proxy_sock
+        return websockets.connect(self.xianyu.base_url, **connect_kwargs)
     
     async def send_heartbeat(self, ws):
         """
@@ -266,7 +229,7 @@ class ConnectionManager:
         Args:
             ws: WebSocket连接
         """
-        if ws.closed:
+        if getattr(ws, "closed", False):
             raise ConnectionError("WebSocket连接已关闭,无法发送心跳")
         
         from common.utils.xianyu_utils import generate_mid
@@ -298,7 +261,7 @@ class ConnectionManager:
         try:
             while True:
                 try:
-                    if ws.closed:
+                    if getattr(ws, "closed", False):
                         logger.warning(f"【{self.cookie_id}】WebSocket连接已关闭,停止心跳循环")
                         break
 

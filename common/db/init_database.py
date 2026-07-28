@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 数据库初始化脚本
@@ -41,9 +41,12 @@ from common.models.billing import (
 )
 from common.models.connector import (
     ConnectorAccountBinding,
+    ConnectorBindingCode,
     ConnectorCommand,
+    ConnectorConversationControl,
     ConnectorDevice,
     ConnectorEvent,
+    ConnectorMessage,
     ConnectorReleaseVersion,
 )
 from common.services.billing_catalog import (
@@ -1765,6 +1768,14 @@ class DatabaseInitializer:
 
     # 字段迁移定义：表名 -> [(字段名, 字段定义, 在哪个字段后面)]
     COLUMN_MIGRATIONS = {
+        "xy_connector_devices": [
+            ("app_status", "VARCHAR(20) NOT NULL DEFAULT 'offline'", "last_seen_at"),
+            ("last_error_code", "VARCHAR(64) DEFAULT NULL", "app_status"),
+            ("last_error_message", "VARCHAR(255) DEFAULT NULL", "last_error_code"),
+        ],
+        "xy_connector_account_bindings": [
+            ("last_message_at", "DATETIME DEFAULT NULL", "last_connected_at"),
+        ],
         "xy_ai_usage_requests": [
             ("quota_grant_id", "BIGINT DEFAULT NULL", "release_reason"),
         ],
@@ -2519,8 +2530,11 @@ class DatabaseInitializer:
         tables = (
             ConnectorDevice.__table__,
             ConnectorAccountBinding.__table__,
+            ConnectorBindingCode.__table__,
             ConnectorCommand.__table__,
             ConnectorEvent.__table__,
+            ConnectorConversationControl.__table__,
+            ConnectorMessage.__table__,
             ConnectorReleaseVersion.__table__,
         )
         async with async_engine.begin() as conn:

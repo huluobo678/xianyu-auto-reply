@@ -1,4 +1,4 @@
-"""
+﻿"""
 密码登录代理路由 - Backend-Web服务
 
 功能：
@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
@@ -21,7 +21,10 @@ from app.services.account_service import AccountService
 from common.models.user import User
 from common.services.account_limit_service import AccountLimitExceededError, AccountLimitService
 
-router = APIRouter(prefix="/password-login", tags=["密码登录"])
+async def _cloud_xianyu_login_disabled() -> None:
+    raise HTTPException(status_code=410, detail="云端闲鱼连接已关闭，请使用本地连接器")
+
+router = APIRouter(prefix="/password-login", tags=["密码登录"], dependencies=[Depends(_cloud_xianyu_login_disabled)])
 
 settings = get_settings()
 

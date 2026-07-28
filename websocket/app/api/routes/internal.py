@@ -1,4 +1,4 @@
-"""
+﻿"""
 WebSocket服务内部API路由
 
 功能：
@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -68,6 +68,19 @@ class CreateChatRequest(BaseModel):
     item_id: str   # 关联商品ID
 
 
+class ConnectorReplyDecisionRequest(BaseModel):
+    global_message_id: str = Field(min_length=16, max_length=191)
+    account_id: str = Field(min_length=1, max_length=80)
+    source_message_id: str | None = Field(default=None, max_length=128)
+    chat_id: str = Field(min_length=1, max_length=128)
+    sender_user_id: str = Field(min_length=1, max_length=128)
+    sender_user_name: str = Field(default="", max_length=120)
+    message_text: str = Field(min_length=1, max_length=10000)
+    item_id: str | None = Field(default=None, max_length=64)
+    msg_time: str = Field(default="", max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
 class LogRetentionRequest(BaseModel):
     """日志保留天数刷新请求"""
     retention_days: int
@@ -84,6 +97,49 @@ class SolveCaptchaRequest(BaseModel):
                                   # 传入后链接过期时可凭此 Cookie 重取新链接继续处理。
     device_id: str = ""           # 可选：设备 ID，配合 cookies 重新请求 token 接口使用
 
+
+@router.post("/connector/reply-decision")
+async def connector_reply_decision(request: ConnectorReplyDecisionRequest):
+    """只执行云端规则与 AI 决策，不连接闲鱼、不发送消息。"""
+    from app.services.xianyu.auto_reply_service import AutoReplyService
+
+    class DecisionOnlyRuntime:
+        def __init__(self, account_id: str):
+            self.myid = account_id
+
+    service = AutoReplyService(request.account_id, DecisionOnlyRuntime(request.account_id))
+    trace = {
+        "source_message_id": request.source_message_id,
+        "process_status": "processing",
+        "decision_reason": "processing",
+        "reply_strategy": "none",
+        "reply_mode": "none",
+        "context_snapshot": {"global_message_id": request.global_message_id},
+    }
+    token = service._reply_trace_var.set(trace)
+    try:
+        reply = await service.get_reply(
+            send_user_name=request.sender_user_name,
+            send_user_id=request.sender_user_id,
+            send_message=request.message_text,
+            chat_id=request.chat_id,
+            item_id=request.item_id,
+            msg_time=request.msg_time,
+        )
+    finally:
+        service._reply_trace_var.reset(token)
+
+    return {
+        "success": True,
+        "data": {
+            "should_reply": bool(reply),
+            "reply_content": reply,
+            "reply_strategy": trace.get("reply_strategy") or "none",
+            "reply_mode": trace.get("reply_mode") or ("text" if reply else "none"),
+            "decision_reason": trace.get("decision_reason") or ("reply_ready" if reply else "no_rule_matched"),
+            "ai_usage_request_id": trace.get("_ai_usage_request_id"),
+        },
+    }
 
 @router.post("/logs/retention")
 async def refresh_log_retention(request: LogRetentionRequest):

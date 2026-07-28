@@ -1,4 +1,4 @@
-"""
+﻿"""
 二维码扫码登录路由
 
 提供二维码生成、状态查询和Cookie获取接口
@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 from typing import Dict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,10 @@ from common.models.user import User
 from common.schemas.common import ApiResponse
 from common.services.account_limit_service import AccountLimitExceededError
 
-router = APIRouter(prefix="/qr-login", tags=["二维码登录"])
+async def _cloud_xianyu_login_disabled() -> None:
+    raise HTTPException(status_code=410, detail="云端闲鱼连接已关闭，请使用本地连接器")
+
+router = APIRouter(prefix="/qr-login", tags=["二维码登录"], dependencies=[Depends(_cloud_xianyu_login_disabled)])
 
 # 会话所有者映射
 SESSION_OWNER: Dict[str, int] = {}
