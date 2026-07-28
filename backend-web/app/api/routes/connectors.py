@@ -1,11 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 import hmac
 import secrets
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,8 +18,10 @@ from common.models.connector import (
     ConnectorConversationControl,
     ConnectorDevice,
     ConnectorMessage,
+    ConnectorPairingSession,
     ConnectorReleaseVersion,
 )
+from common.db.redis_client import get_redis_client
 from common.models.user import User
 from common.models.xy_account import XYAccount
 from common.schemas.common import ApiResponse
@@ -41,6 +43,11 @@ class RegisterDeviceByCodeRequest(RegisterDeviceRequest):
     binding_code: str = Field(min_length=20, max_length=128)
 
     model_config = ConfigDict(extra="forbid")
+
+
+class CreatePairingSessionRequest(RegisterDeviceRequest):
+    model_config = ConfigDict(extra="forbid")
+
 
 class BindAccountRequest(BaseModel):
     account_id: str = Field(min_length=1, max_length=80)
@@ -99,8 +106,52 @@ class ReplaceDeviceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+
 def _credential_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _expire_pairing(pairing: ConnectorPairingSession) -> bool:
+    if (
+        pairing.status in {"pending", "approved"}
+        and pairing.expires_at <= get_beijing_now_naive()
+    ):
+        pairing.status = "expired"
+        return True
+    return False
+
+
+async def _pairing_rate_limit(request: Request) -> None:
+    try:
+        client = await get_redis_client()
+        ip = request.client.host if request.client else "unknown"
+        key = f"rate_limit:connector_pairing:create:{ip}"
+        count = await client.incr(key)
+        if count == 1:
+            await client.expire(key, 60)
+        if count > 12:
+            raise HTTPException(status_code=429, detail="配对请求过于频繁，请稍后重试")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="配对服务暂时不可用，请稍后重试")
+
+
+async def _pairing_by_secret(
+    session: AsyncSession, pairing_id: str, pairing_token: str, *, lock: bool = False
+) -> ConnectorPairingSession:
+    query = select(ConnectorPairingSession).where(
+        ConnectorPairingSession.id == pairing_id,
+        ConnectorPairingSession.token_hash == _credential_hash(pairing_token),
+    )
+    if lock:
+        query = query.with_for_update()
+    pairing = await session.scalar(query)
+    if pairing is None:
+        raise HTTPException(status_code=401, detail="无效的配对凭据")
+    if _expire_pairing(pairing):
+        await session.commit()
+    return pairing
 
 
 def _serialize_device(device: ConnectorDevice) -> dict:
@@ -164,7 +215,9 @@ def _serialize_message(message: ConnectorMessage, *, duplicate: bool = False) ->
     }
 
 
-async def _bound_account(session: AsyncSession, device: ConnectorDevice, account_id: str) -> ConnectorAccountBinding:
+async def _bound_account(
+    session: AsyncSession, device: ConnectorDevice, account_id: str
+) -> ConnectorAccountBinding:
     binding = await session.scalar(
         select(ConnectorAccountBinding).where(
             ConnectorAccountBinding.device_id == device.id,
@@ -173,8 +226,183 @@ async def _bound_account(session: AsyncSession, device: ConnectorDevice, account
         )
     )
     if binding is None:
-        raise HTTPException(status_code=409, detail="Account is not bound to this device")
+        raise HTTPException(
+            status_code=409, detail="Account is not bound to this device"
+        )
     return binding
+
+
+@router.post("/pairing-sessions", response_model=ApiResponse)
+async def create_pairing_session(
+    payload: CreatePairingSessionRequest,
+    request: Request,
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    await _pairing_rate_limit(request)
+    now = get_beijing_now_naive()
+    pairing_id = secrets.token_urlsafe(18)
+    pairing_token = secrets.token_urlsafe(32)
+    pairing_state = secrets.token_urlsafe(24)
+    session.add(
+        ConnectorPairingSession(
+            id=pairing_id,
+            token_hash=_credential_hash(pairing_token),
+            state=pairing_state,
+            status="pending",
+            expires_at=now + timedelta(minutes=10),
+            device_uuid=payload.device_uuid,
+            device_name=payload.device_name,
+            platform=payload.platform,
+            app_version=payload.app_version,
+        )
+    )
+    await session.commit()
+    return ApiResponse(
+        success=True,
+        data={
+            "pairing_id": pairing_id,
+            "pairing_token": pairing_token,
+            "state": pairing_state,
+            "expires_in_seconds": 600,
+            "authorization_url": f"https://xy.yunshuzhilian.asia/connector/pair?state={pairing_state}",
+        },
+    )
+
+
+@router.get("/pairing-sessions/by-state/{pairing_state}", response_model=ApiResponse)
+async def get_pairing_session_for_user(
+    pairing_state: str,
+    current_user: User = Depends(deps.get_current_active_user),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    pairing = await session.scalar(
+        select(ConnectorPairingSession).where(
+            ConnectorPairingSession.state == pairing_state
+        )
+    )
+    if pairing is None:
+        raise HTTPException(status_code=404, detail="配对会话不存在")
+    if _expire_pairing(pairing):
+        await session.commit()
+    if pairing.approved_by_user_id not in {None, current_user.id}:
+        raise HTTPException(status_code=409, detail="该配对会话已由其他用户绑定")
+    return ApiResponse(
+        success=True,
+        data={
+            "state": pairing.state,
+            "status": pairing.status,
+            "device_name": pairing.device_name,
+            "platform": pairing.platform,
+            "app_version": pairing.app_version,
+            "expires_at": pairing.expires_at.isoformat(),
+        },
+    )
+
+
+@router.post(
+    "/pairing-sessions/by-state/{pairing_state}/approve", response_model=ApiResponse
+)
+async def approve_pairing_session(
+    pairing_state: str,
+    current_user: User = Depends(deps.get_current_active_user),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    pairing = await session.scalar(
+        select(ConnectorPairingSession)
+        .where(ConnectorPairingSession.state == pairing_state)
+        .with_for_update()
+    )
+    if pairing is None:
+        raise HTTPException(status_code=404, detail="配对会话不存在")
+    if _expire_pairing(pairing):
+        await session.commit()
+        raise HTTPException(status_code=410, detail="配对会话已过期")
+    if pairing.status == "approved" and pairing.approved_by_user_id == current_user.id:
+        return ApiResponse(success=True, data={"status": "approved"})
+    if pairing.status != "pending" or pairing.approved_by_user_id not in {
+        None,
+        current_user.id,
+    }:
+        raise HTTPException(status_code=409, detail="配对会话已被使用")
+    pairing.approved_by_user_id = current_user.id
+    pairing.approved_at = get_beijing_now_naive()
+    pairing.status = "approved"
+    await session.commit()
+    return ApiResponse(success=True, data={"status": "approved"})
+
+
+@router.get("/pairing-sessions/{pairing_id}/status", response_model=ApiResponse)
+async def pairing_session_status(
+    pairing_id: str,
+    x_pairing_token: str = Header(min_length=20),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    pairing = await _pairing_by_secret(session, pairing_id, x_pairing_token)
+    return ApiResponse(
+        success=True,
+        data={"status": pairing.status, "expires_at": pairing.expires_at.isoformat()},
+    )
+
+
+@router.post("/pairing-sessions/{pairing_id}/consume", response_model=ApiResponse)
+async def consume_pairing_session(
+    pairing_id: str,
+    x_pairing_token: str = Header(min_length=20),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    pairing = await _pairing_by_secret(session, pairing_id, x_pairing_token, lock=True)
+    if pairing.status == "expired":
+        raise HTTPException(status_code=410, detail="配对会话已过期")
+    if pairing.status != "approved" or pairing.approved_by_user_id is None:
+        raise HTTPException(status_code=409, detail="配对会话尚未批准或已被消费")
+    device = await session.scalar(
+        select(ConnectorDevice).where(
+            ConnectorDevice.device_uuid == pairing.device_uuid
+        )
+    )
+    if device is not None and device.user_id != pairing.approved_by_user_id:
+        raise HTTPException(
+            status_code=409, detail="该电脑已绑定其他用户，请先在原账户中吊销"
+        )
+    device_token = secrets.token_urlsafe(32)
+    if device is None:
+        device = ConnectorDevice(
+            user_id=pairing.approved_by_user_id,
+            device_uuid=pairing.device_uuid,
+            device_name=pairing.device_name,
+            platform=pairing.platform,
+            app_version=pairing.app_version,
+            credential_hash=_credential_hash(device_token),
+        )
+        session.add(device)
+    else:
+        device.device_name = pairing.device_name
+        device.platform = pairing.platform
+        device.app_version = pairing.app_version
+        device.status = "active"
+        device.revoked_at = None
+        device.credential_version += 1
+        device.credential_hash = _credential_hash(device_token)
+    pairing.status = "consumed"
+    pairing.consumed_at = get_beijing_now_naive()
+    await session.commit()
+    await session.refresh(device)
+    data = _serialize_device(device)
+    data["device_token"] = device_token
+    return ApiResponse(success=True, data=data)
+
+
+@router.post("/pairing-sessions/{pairing_id}/cancel", response_model=ApiResponse)
+async def cancel_pairing_session(
+    pairing_id: str,
+    x_pairing_token: str = Header(min_length=20),
+    session: AsyncSession = Depends(deps.get_db_session),
+) -> ApiResponse:
+    pairing = await _pairing_by_secret(session, pairing_id, x_pairing_token, lock=True)
+    if pairing.status in {"pending", "approved"}:
+        pairing.status = "cancelled"
+        await session.commit()
+    return ApiResponse(success=True, data={"status": pairing.status})
 
 
 @router.post("/binding-codes", response_model=ApiResponse)
@@ -184,13 +412,17 @@ async def create_binding_code(
 ) -> ApiResponse:
     code = secrets.token_urlsafe(24)
     now = get_beijing_now_naive()
-    session.add(ConnectorBindingCode(
-        user_id=current_user.id,
-        code_hash=_credential_hash(code),
-        expires_at=now + timedelta(minutes=10),
-    ))
+    session.add(
+        ConnectorBindingCode(
+            user_id=current_user.id,
+            code_hash=_credential_hash(code),
+            expires_at=now + timedelta(minutes=10),
+        )
+    )
     await session.commit()
-    return ApiResponse(success=True, data={"binding_code": code, "expires_in_seconds": 600})
+    return ApiResponse(
+        success=True, data={"binding_code": code, "expires_in_seconds": 600}
+    )
 
 
 @router.post("/devices/register-by-code", response_model=ApiResponse)
@@ -210,15 +442,24 @@ async def register_device_by_code(
     )
     if binding_code is None:
         raise HTTPException(status_code=401, detail="Invalid or expired binding code")
-    device = await session.scalar(select(ConnectorDevice).where(ConnectorDevice.device_uuid == payload.device_uuid))
+    device = await session.scalar(
+        select(ConnectorDevice).where(
+            ConnectorDevice.device_uuid == payload.device_uuid
+        )
+    )
     if device is not None and device.user_id != binding_code.user_id:
-        raise HTTPException(status_code=409, detail="Device is already registered to another user")
+        raise HTTPException(
+            status_code=409, detail="Device is already registered to another user"
+        )
     token = secrets.token_urlsafe(32)
     if device is None:
         device = ConnectorDevice(
-            user_id=binding_code.user_id, device_uuid=payload.device_uuid,
-            device_name=payload.device_name, platform=payload.platform,
-            app_version=payload.app_version, credential_hash=_credential_hash(token),
+            user_id=binding_code.user_id,
+            device_uuid=payload.device_uuid,
+            device_name=payload.device_name,
+            platform=payload.platform,
+            app_version=payload.app_version,
+            credential_hash=_credential_hash(token),
         )
         session.add(device)
     else:
@@ -234,6 +475,7 @@ async def register_device_by_code(
     data = _serialize_device(device)
     data["device_token"] = token
     return ApiResponse(success=True, data=data)
+
 
 @router.post("/devices/register", response_model=ApiResponse)
 async def register_device(
@@ -441,6 +683,7 @@ async def revoke_device(
     await session.commit()
     return ApiResponse(success=True, data=_serialize_device(device))
 
+
 @router.post("/devices/{device_id}/messages", response_model=ApiResponse)
 async def process_connector_message(
     device_id: int,
@@ -456,7 +699,9 @@ async def process_connector_message(
         )
     )
     if existing is not None and existing.status != "decision_failed":
-        return ApiResponse(success=True, data=_serialize_message(existing, duplicate=True))
+        return ApiResponse(
+            success=True, data=_serialize_message(existing, duplicate=True)
+        )
 
     now = get_beijing_now_naive()
     if existing is None:
@@ -488,7 +733,9 @@ async def process_connector_message(
             )
             if message is None:
                 raise
-            return ApiResponse(success=True, data=_serialize_message(message, duplicate=True))
+            return ApiResponse(
+                success=True, data=_serialize_message(message, duplicate=True)
+            )
     else:
         message = existing
 
@@ -524,7 +771,11 @@ async def process_connector_message(
         await session.commit()
         return ApiResponse(success=True, data=_serialize_message(message))
 
-    if control is not None and control.manual_takeover_until and control.manual_takeover_until > now:
+    if (
+        control is not None
+        and control.manual_takeover_until
+        and control.manual_takeover_until > now
+    ):
         message.status = "no_reply"
         message.decision_reason = "manual_takeover"
         message.decided_at = now
@@ -549,21 +800,33 @@ async def process_connector_message(
         message.decision_reason = "cloud_decision_unavailable"
         message.decided_at = now
         await session.commit()
-        raise HTTPException(status_code=503, detail="Cloud reply decision unavailable; auto reply paused")
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud reply decision unavailable; auto reply paused",
+        )
 
     decision = decision_response.get("data") or {}
-    message.decision_reason = str(decision.get("decision_reason") or "no_rule_matched")[:64]
+    message.decision_reason = str(decision.get("decision_reason") or "no_rule_matched")[
+        :64
+    ]
     message.reply_strategy = str(decision.get("reply_strategy") or "none")[:24]
     message.reply_mode = str(decision.get("reply_mode") or "none")[:16]
     message.reply_content = decision.get("reply_content")
     message.ai_usage_request_id = decision.get("ai_usage_request_id")
     message.decided_at = now
-    message.status = "reply_ready" if decision.get("should_reply") and message.reply_content else "no_reply"
+    message.status = (
+        "reply_ready"
+        if decision.get("should_reply") and message.reply_content
+        else "no_reply"
+    )
     await session.commit()
     return ApiResponse(success=True, data=_serialize_message(message))
 
 
-@router.post("/devices/{device_id}/messages/{global_message_id}/send-result", response_model=ApiResponse)
+@router.post(
+    "/devices/{device_id}/messages/{global_message_id}/send-result",
+    response_model=ApiResponse,
+)
 async def report_connector_send_result(
     device_id: int,
     global_message_id: str,
@@ -583,16 +846,22 @@ async def report_connector_send_result(
     if message is None:
         raise HTTPException(status_code=404, detail="Connector message not found")
     if message.status in {"sent", "send_failed"}:
-        return ApiResponse(success=True, data=_serialize_message(message, duplicate=True))
+        return ApiResponse(
+            success=True, data=_serialize_message(message, duplicate=True)
+        )
     if message.status != "reply_ready":
         raise HTTPException(status_code=409, detail="Message has no pending reply")
 
     if payload.success:
         if message.ai_usage_request_id:
-            settled = await AIUsageService.commit_locked(session, message.ai_usage_request_id)
+            settled = await AIUsageService.commit_locked(
+                session, message.ai_usage_request_id
+            )
             if not settled:
                 await session.rollback()
-                raise HTTPException(status_code=409, detail="AI quota reservation cannot be committed")
+                raise HTTPException(
+                    status_code=409, detail="AI quota reservation cannot be committed"
+                )
         message.status = "sent"
         message.sent_at = get_beijing_now_naive()
         message.send_error_code = None
@@ -600,7 +869,9 @@ async def report_connector_send_result(
     else:
         if message.ai_usage_request_id:
             await AIUsageService.release_locked(
-                session, message.ai_usage_request_id, payload.error_code or "send_failed"
+                session,
+                message.ai_usage_request_id,
+                payload.error_code or "send_failed",
             )
         message.status = "send_failed"
         message.send_error_code = payload.error_code
@@ -632,8 +903,12 @@ async def connector_status(
             {
                 "account_id": binding.account_id,
                 "connection_status": binding.connection_status,
-                "last_connected_at": binding.last_connected_at.isoformat() if binding.last_connected_at else None,
-                "last_message_at": binding.last_message_at.isoformat() if binding.last_message_at else None,
+                "last_connected_at": binding.last_connected_at.isoformat()
+                if binding.last_connected_at
+                else None,
+                "last_message_at": binding.last_message_at.isoformat()
+                if binding.last_message_at
+                else None,
                 "error_code": binding.last_error_code,
                 "error_message": binding.last_error_message,
             }
@@ -683,8 +958,13 @@ async def replace_device(
     await session.commit()
     return ApiResponse(
         success=True,
-        data={"old_device_id": old_device.id, "new_device_id": new_device.id, "accounts": moved_accounts},
+        data={
+            "old_device_id": old_device.id,
+            "new_device_id": new_device.id,
+            "accounts": moved_accounts,
+        },
     )
+
 
 @router.get("/release/latest", response_model=ApiResponse)
 async def latest_connector_release(
@@ -698,13 +978,16 @@ async def latest_connector_release(
     )
     if release is None:
         return ApiResponse(success=True, data=None, message="安装包尚未发布")
-    return ApiResponse(success=True, data={
-        "version": release.version,
-        "download_url": release.download_url,
-        "sha256": release.sha256,
-        "mandatory": release.mandatory,
-        "published_at": release.published_at.isoformat(),
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "version": release.version,
+            "download_url": release.download_url,
+            "sha256": release.sha256,
+            "mandatory": release.mandatory,
+            "published_at": release.published_at.isoformat(),
+        },
+    )
 
 
 @router.get("/devices/{device_id}/release/latest", response_model=ApiResponse)
@@ -720,7 +1003,7 @@ async def latest_connector_release_for_device(
         .order_by(ConnectorReleaseVersion.published_at.desc())
     )
     if release is None:
-        return ApiResponse(success=True, data=None, message="???????")
+        return ApiResponse(success=True, data=None, message="安装包尚未发布")
     return ApiResponse(
         success=True,
         data={

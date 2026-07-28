@@ -1,6 +1,6 @@
-#define AppName "Xianyu Local Connector"
+#define AppName "闲鱼本地连接器"
 #ifndef AppVersion
-#define AppVersion "0.2.1"
+#define AppVersion "0.3.0"
 #endif
 #define AppPublisher "Xianyu Auto Reply"
 #define BuildRoot "D:\AI\Agent_Data\Generated_Files\xianyu-local-connector"
@@ -31,8 +31,8 @@ UsePreviousAppDir=yes
 UsePreviousTasks=yes
 
 [Tasks]
-Name: "desktopicon"; Description: "????????"; GroupDescription: "?????"; Flags: checkedonce
-Name: "startup"; Description: "?? Windows ????????"; GroupDescription: "?????"; Flags: unchecked
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式"; Flags: checkedonce
+Name: "startup"; Description: "登录 Windows 后自动启动连接器"; GroupDescription: "可选设置"; Flags: unchecked
 
 [Files]
 Source: "{#BuildRoot}\dist\XianyuConnector\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -43,7 +43,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Tasks: 
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Parameters: "--startup"; Tasks: startup
 
 [Run]
-Filename: "{app}\XianyuConnector.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\XianyuConnector.exe"; Description: "安装完成后启动闲鱼本地连接器"; Flags: nowait postinstall skipifsilent
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -54,8 +54,8 @@ begin
   begin
     DataDir := ExpandConstant('{localappdata}\XianyuConnector');
     if DirExists(DataDir) and (not UninstallSilent) and
-       (MsgBox('???????????????????? Cookie/Token ???????' + #13#10 + #13#10 +
-         '???????????????????????????????',
+       (MsgBox('是否保留本机连接器数据（包括设备绑定、闲鱼 Cookie/Token 和发送去重记录）？' + #13#10 + #13#10 +
+         '选择“是”可在重新安装或覆盖升级后继续使用；选择“否”将永久删除本机数据。',
          mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDNO) then
       DelTree(DataDir, True, True, True);
   end;

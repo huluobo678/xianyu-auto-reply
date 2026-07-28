@@ -1,18 +1,17 @@
-﻿import { useEffect, useState } from 'react'
-import { createConnectorBindingCode, getConnectorStatus, getLatestConnectorRelease, revokeConnectorDevice, type ConnectorDeviceStatus } from '@/api/connectors'
+import { useEffect, useState } from 'react'
+import { getConnectorStatus, getLatestConnectorRelease, revokeConnectorDevice, type ConnectorDeviceStatus } from '@/api/connectors'
 
 export function Accounts() {
   const [devices, setDevices] = useState<ConnectorDeviceStatus[]>([])
-  const [downloadUrl, setDownloadUrl] = useState<string>('')
+  const [release, setRelease] = useState<{ version: string; download_url: string; sha256: string } | null>(null)
   const [message, setMessage] = useState('正在读取本地连接器状态…')
-  const [bindingCode, setBindingCode] = useState('')
 
   const refresh = async () => {
     try {
-      const [status, release] = await Promise.all([getConnectorStatus(), getLatestConnectorRelease()])
+      const [status, latestRelease] = await Promise.all([getConnectorStatus(), getLatestConnectorRelease()])
       setDevices(status.devices || [])
-      setDownloadUrl(release?.download_url || '')
-      setMessage(status.devices?.length ? '' : '尚未绑定设备，请先下载安装本地连接器并登录绑定。')
+      setRelease(latestRelease)
+      setMessage(status.devices?.length ? '' : '尚未绑定设备，请先下载安装本地连接器。安装后会自动打开浏览器完成绑定。')
     } catch (error) {
       setMessage(`状态读取失败：${error instanceof Error ? error.message : '未知错误'}`)
     }
@@ -24,11 +23,6 @@ export function Accounts() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const createCode = async () => {
-    const result = await createConnectorBindingCode()
-    setBindingCode(result.binding_code)
-  }
-
   const revoke = async (deviceId: number) => {
     if (!window.confirm('吊销后该设备会立即停止自动回复，确认继续？')) return
     await revokeConnectorDevice(deviceId)
@@ -37,14 +31,13 @@ export function Accounts() {
 
   return <div className="page-container">
     <div className="page-header">
-      <div><h1 className="page-title">本地连接器</h1><p className="page-description">Cookie、Token 和密码只保存在你的电脑，云端不再提供闲鱼直连。</p></div>
-      {downloadUrl ? <a className="btn btn-primary" href={downloadUrl}>下载 Windows 连接器</a> : <button className="btn btn-primary" disabled>安装包尚未发布</button>}
+      <div><h1 className="page-title">本地连接器</h1><p className="page-description">Cookie、Token 和验证链接只保存在你的电脑，云端不提供闲鱼直连。</p></div>
+      {release?.download_url ? <a className="btn btn-primary" href={release.download_url}>下载 Windows 连接器</a> : <button className="btn btn-primary" disabled>安装包尚未发布</button>}
     </div>
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-      <strong>设备绑定</strong>
-      <p>生成一次性绑定码并在本地连接器中输入，10 分钟内有效，不上传密码。</p>
-      <button className="btn btn-primary" onClick={() => void createCode()}>生成绑定码</button>
-      {bindingCode && <code style={{ marginLeft: 12, userSelect: 'all' }}>{bindingCode}</code>}
+      <strong>一键安装与绑定</strong>
+      <p>安装后连接器会自动打开官方授权页。登录或注册后点击一次“绑定此电脑”，无需填写服务器地址、绑定码或设备令牌。</p>
+      {release && <p>最新版本：{release.version}<br />SHA-256：<code style={{ userSelect: 'all' }}>{release.sha256}</code></p>}
     </div>
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
       <strong>运行规则</strong>

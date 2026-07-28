@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 数据库初始化脚本
@@ -47,6 +47,7 @@ from common.models.connector import (
     ConnectorDevice,
     ConnectorEvent,
     ConnectorMessage,
+    ConnectorPairingSession,
     ConnectorReleaseVersion,
 )
 from common.services.billing_catalog import (
@@ -2531,6 +2532,7 @@ class DatabaseInitializer:
             ConnectorDevice.__table__,
             ConnectorAccountBinding.__table__,
             ConnectorBindingCode.__table__,
+            ConnectorPairingSession.__table__,
             ConnectorCommand.__table__,
             ConnectorEvent.__table__,
             ConnectorConversationControl.__table__,

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import urllib.error
@@ -20,7 +20,7 @@ class ConnectorCloudClient:
         parsed = urllib.parse.urlparse(self.base_url)
         is_local = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
         if parsed.scheme != "https" and not (parsed.scheme == "http" and is_local):
-            raise ConnectorCloudError("SaaS ?????? HTTPS???????? HTTP")
+            raise ConnectorCloudError("SaaS 地址必须使用 HTTPS（仅本机开发允许 HTTP）")
 
     @staticmethod
     def _assert_safe_payload(payload: dict | None) -> None:
@@ -38,7 +38,9 @@ class ConnectorCloudClient:
             if isinstance(value, dict):
                 overlap = forbidden.intersection(key.lower() for key in value)
                 if overlap:
-                    raise ConnectorCloudError(f"??????????????{sorted(overlap)[0]}")
+                    raise ConnectorCloudError(
+                        f"禁止向云端上传敏感字段：{sorted(overlap)[0]}"
+                    )
                 stack.extend(value.values())
             elif isinstance(value, list):
                 stack.extend(value)
@@ -78,12 +80,12 @@ class ConnectorCloudClient:
             except json.JSONDecodeError:
                 pass
             raise ConnectorCloudError(
-                f"?????? HTTP {exc.code}: {str(detail)[:200]}"
+                f"云端请求失败 HTTP {exc.code}: {str(detail)[:200]}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise ConnectorCloudError(f"???? SaaS?{exc.reason}") from exc
+            raise ConnectorCloudError(f"无法连接 SaaS：{exc.reason}") from exc
         if result.get("success") is False:
-            raise ConnectorCloudError(result.get("message") or "??????")
+            raise ConnectorCloudError(result.get("message") or "云端请求失败")
         return result
 
     def login(self, username: str, password: str) -> dict:
@@ -94,8 +96,38 @@ class ConnectorCloudClient:
             safe_payload=False,
         )
         if not result.get("token"):
-            raise ConnectorCloudError(result.get("message") or "SaaS ????")
+            raise ConnectorCloudError(result.get("message") or "SaaS 登录失败")
         return result
+
+    def create_pairing_session(self, payload: dict) -> dict:
+        result = self._request(
+            "/connectors/pairing-sessions", method="POST", payload=payload
+        )
+        return result.get("data") or {}
+
+    def pairing_session_status(self, pairing_id: str, pairing_token: str) -> dict:
+        result = self._request(
+            f"/connectors/pairing-sessions/{pairing_id}/status",
+            method="GET",
+            headers={"X-Pairing-Token": pairing_token},
+        )
+        return result.get("data") or {}
+
+    def consume_pairing_session(self, pairing_id: str, pairing_token: str) -> dict:
+        result = self._request(
+            f"/connectors/pairing-sessions/{pairing_id}/consume",
+            method="POST",
+            headers={"X-Pairing-Token": pairing_token},
+        )
+        return result.get("data") or {}
+
+    def cancel_pairing_session(self, pairing_id: str, pairing_token: str) -> dict:
+        result = self._request(
+            f"/connectors/pairing-sessions/{pairing_id}/cancel",
+            method="POST",
+            headers={"X-Pairing-Token": pairing_token},
+        )
+        return result.get("data") or {}
 
     def register_device_by_code(self, binding_code: str, payload: dict) -> dict:
         result = self._request(
@@ -104,6 +136,7 @@ class ConnectorCloudClient:
             payload={**payload, "binding_code": binding_code},
         )
         return result.get("data") or {}
+
     def register_device(self, access_token: str, payload: dict) -> dict:
         result = self._request(
             "/connectors/devices/register",
@@ -160,6 +193,7 @@ class ConnectorCloudClient:
             headers={"X-Connector-Token": device_token},
         )
         return result.get("data")
+
     def sync_account_state(
         self,
         device_id: int,

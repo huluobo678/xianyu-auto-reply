@@ -8,19 +8,25 @@ from pathlib import Path
 import pytest
 
 from connector.cloud_client import ConnectorCloudClient, ConnectorCloudError
-from connector.core_loader import (
-    load_connection_manager_types,
-    load_qr_login_manager_class,
-)
 from connector.protocol import DeliveryState, MessageEnvelope, can_transition
 from connector.secure_store import SecureCredentialStore
 from connector.recovery import runtime_is_active, should_auto_recover
+from connector.pairing import (
+    OFFICIAL_SAAS_URL,
+    PairingCancelled,
+    PairingTimeout,
+    run_pairing,
+)
 from connector.xianyu_runtime import MAX_RECONNECT_FAILURES
 from common.utils.sensitive_logging import REDACTED, redact_sensitive_text
 from connector.updater import ConnectorUpdateError, download_installer, version_is_newer
 from connector.xianyu_runtime import LocalXianyuRuntime
 from connector.xianyu_token import _requires_verification
-from common.models.connector import ConnectorDevice, ConnectorReleaseVersion
+from common.models.connector import (
+    ConnectorDevice,
+    ConnectorPairingSession,
+    ConnectorReleaseVersion,
+)
 
 
 def test_connector_models_use_isolated_tables():
@@ -33,7 +39,11 @@ def test_auto_recovery_requires_complete_local_and_device_credentials():
         "server_url": "https://xy.example.com",
         "device_id": "1",
         "device_token": "device-secret",
-        "xianyu": {"account_id": "123", "cookies": "unb=123; cookie=secret", "token": "xianyu-secret"},
+        "xianyu": {
+            "account_id": "123",
+            "cookies": "unb=123; cookie=secret",
+            "token": "xianyu-secret",
+        },
     }
     assert should_auto_recover(complete, manually_stopped=False)
     assert not should_auto_recover(complete, manually_stopped=True)
@@ -65,7 +75,15 @@ def test_sensitive_logging_redacts_secrets_and_verification_urls():
         "slider verification URL: https://verify.example.com/path?token=query-secret"
     )
     redacted = redact_sensitive_text(message)
-    for secret in ("auth-secret", "unb=1", "hunter2", "device-secret", "remote-secret", "verify.example.com", "query-secret"):
+    for secret in (
+        "auth-secret",
+        "unb=1",
+        "hunter2",
+        "device-secret",
+        "remote-secret",
+        "verify.example.com",
+        "query-secret",
+    ):
         assert secret not in redacted
     assert REDACTED in redacted
 
@@ -276,8 +294,17 @@ for field in ('cookies', 'token', 'password'):
 print('credentials_rejected')
 """
     environment = os.environ.copy()
-    environment["PYTHONPATH"] = os.pathsep.join([str(repository_root / "backend-web"), str(repository_root)])
-    result = subprocess.run([sys.executable, "-c", code], cwd=repository_root, env=environment, check=True, capture_output=True, text=True)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(repository_root / "backend-web"), str(repository_root)]
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=repository_root,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     assert "credentials_rejected" in result.stdout
 
 
@@ -299,10 +326,13 @@ def test_phase3_cloud_message_and_send_result_flow(monkeypatch):
     class FakeResponse:
         def __init__(self, payload):
             self.payload = payload
+
         def __enter__(self):
             return self
+
         def __exit__(self, *_args):
             return False
+
         def read(self):
             return json.dumps(self.payload).encode("utf-8")
 
@@ -310,27 +340,49 @@ def test_phase3_cloud_message_and_send_result_flow(monkeypatch):
         payload = json.loads(request.data.decode("utf-8"))
         requests.append((request.full_url, payload, request.headers))
         if request.full_url.endswith("/messages"):
-            return FakeResponse({"success": True, "data": {"status": "reply_ready", "should_reply": True, "reply_content": "云端回复"}})
+            return FakeResponse(
+                {
+                    "success": True,
+                    "data": {
+                        "status": "reply_ready",
+                        "should_reply": True,
+                        "reply_content": "云端回复",
+                    },
+                }
+            )
         return FakeResponse({"success": True, "data": {"status": "sent"}})
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     client = ConnectorCloudClient("http://127.0.0.1:8000")
-    decision = client.process_message(7, "device-token-value-12345", {
-        "global_message_id": "xy:123:message-123456",
-        "account_id": "123",
-        "chat_id": "chat-1",
-        "sender_user_id": "buyer-1",
-        "message_text": "你好",
-    })
+    decision = client.process_message(
+        7,
+        "device-token-value-12345",
+        {
+            "global_message_id": "xy:123:message-123456",
+            "account_id": "123",
+            "chat_id": "chat-1",
+            "sender_user_id": "buyer-1",
+            "message_text": "你好",
+        },
+    )
     assert decision["reply_content"] == "云端回复"
-    result = client.report_send_result(7, "device-token-value-12345", "xy:123:message-123456", {
-        "send_result_id": "result-1234567890123456",
-        "success": True,
-    })
+    result = client.report_send_result(
+        7,
+        "device-token-value-12345",
+        "xy:123:message-123456",
+        {
+            "send_result_id": "result-1234567890123456",
+            "success": True,
+        },
+    )
     assert result["status"] == "sent"
     assert requests[0][0].endswith("/connectors/devices/7/messages")
-    assert requests[1][0].endswith("/connectors/devices/7/messages/xy:123:message-123456/send-result")
-    assert all("cookie" not in json.dumps(payload).lower() for _, payload, _ in requests)
+    assert requests[1][0].endswith(
+        "/connectors/devices/7/messages/xy:123:message-123456/send-result"
+    )
+    assert all(
+        "cookie" not in json.dumps(payload).lower() for _, payload, _ in requests
+    )
 
 
 def test_ai_usage_supports_atomic_connector_settlement():
@@ -353,14 +405,18 @@ def test_connector_update_download_verifies_sha256(monkeypatch, tmp_path):
     class FakeResponse:
         def __enter__(self):
             return self
+
         def __exit__(self, *_args):
             return False
+
         def read(self, _size):
             nonlocal payload
             chunk, payload = payload, b""
             return chunk
 
-    monkeypatch.setattr("urllib.request.urlopen", lambda *_args, **_kwargs: FakeResponse())
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda *_args, **_kwargs: FakeResponse()
+    )
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     import hashlib
 
@@ -380,18 +436,22 @@ def test_cloud_client_device_release_lookup(monkeypatch):
     class FakeResponse:
         def __enter__(self):
             return self
+
         def __exit__(self, *_args):
             return False
+
         def read(self):
-            return json.dumps({
-                "success": True,
-                "data": {
-                    "version": "0.2.1",
-                    "download_url": "https://downloads.example.com/setup.exe",
-                    "sha256": "a" * 64,
-                    "mandatory": False,
-                },
-            }).encode("utf-8")
+            return json.dumps(
+                {
+                    "success": True,
+                    "data": {
+                        "version": "0.2.1",
+                        "download_url": "https://downloads.example.com/setup.exe",
+                        "sha256": "a" * 64,
+                        "mandatory": False,
+                    },
+                }
+            ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
         observed["url"] = request.full_url
@@ -409,3 +469,131 @@ def test_cloud_client_device_release_lookup(monkeypatch):
         "token": "device-token-value-12345",
         "timeout": 15,
     }
+
+
+def test_pairing_model_uses_hash_only_session_fields():
+    assert ConnectorPairingSession.__tablename__ == "xy_connector_pairing_sessions"
+    columns = set(ConnectorPairingSession.__table__.columns.keys())
+    assert {
+        "id",
+        "token_hash",
+        "state",
+        "status",
+        "expires_at",
+        "approved_by_user_id",
+        "device_uuid",
+        "device_name",
+        "platform",
+        "app_version",
+        "approved_at",
+        "consumed_at",
+        "created_at",
+    } <= columns
+    assert "pairing_token" not in columns
+    assert "device_token" not in columns
+
+
+def test_official_saas_url_is_fixed():
+    assert OFFICIAL_SAAS_URL == "https://xy.yunshuzhilian.asia"
+
+
+def test_pairing_flow_opens_browser_and_consumes_once():
+    opened = []
+    statuses = []
+
+    class FakeClient:
+        def create_pairing_session(self, metadata):
+            assert metadata["platform"] == "windows"
+            return {
+                "pairing_id": "pair-1",
+                "pairing_token": "secret-token",
+                "authorization_url": "https://xy.example/pair",
+            }
+
+        def pairing_session_status(self, pairing_id, token):
+            assert (pairing_id, token) == ("pair-1", "secret-token")
+            return {"status": "approved"}
+
+        def consume_pairing_session(self, pairing_id, token):
+            return {"id": 7, "device_token": "device-secret"}
+
+        def cancel_pairing_session(self, pairing_id, token):
+            raise AssertionError("successful pairing must not be cancelled")
+
+    result = run_pairing(
+        FakeClient(),
+        {"platform": "windows"},
+        __import__("threading").Event(),
+        open_browser=opened.append,
+        on_status=statuses.append,
+        poll_interval=0,
+    )
+    assert result == {"id": 7, "device_token": "device-secret"}
+    assert opened == ["https://xy.example/pair"]
+    assert statuses == ["等待浏览器登录并确认绑定…"]
+
+
+def test_pairing_flow_cancel_stops_polling():
+    cancelled = []
+    event = __import__("threading").Event()
+    event.set()
+
+    class FakeClient:
+        def create_pairing_session(self, metadata):
+            return {
+                "pairing_id": "pair-1",
+                "pairing_token": "secret-token",
+                "authorization_url": "https://xy.example/pair",
+            }
+
+        def cancel_pairing_session(self, pairing_id, token):
+            cancelled.append((pairing_id, token))
+
+        def pairing_session_status(self, pairing_id, token):
+            raise AssertionError("cancelled pairing must not poll")
+
+    with pytest.raises(PairingCancelled):
+        run_pairing(
+            FakeClient(), {}, event, open_browser=lambda _url: None, poll_interval=0
+        )
+    assert cancelled == [("pair-1", "secret-token")]
+
+
+def test_pairing_flow_timeout_is_bounded():
+    cancelled = []
+
+    class FakeClient:
+        def create_pairing_session(self, metadata):
+            return {
+                "pairing_id": "pair-1",
+                "pairing_token": "secret-token",
+                "authorization_url": "https://xy.example/pair",
+            }
+
+        def cancel_pairing_session(self, pairing_id, token):
+            cancelled.append((pairing_id, token))
+
+    with pytest.raises(PairingTimeout):
+        run_pairing(
+            FakeClient(),
+            {},
+            __import__("threading").Event(),
+            open_browser=lambda _url: None,
+            timeout_seconds=-1,
+        )
+    assert cancelled == [("pair-1", "secret-token")]
+
+
+def test_pairing_cloud_calls_keep_secret_out_of_url(monkeypatch):
+    calls = []
+    client = ConnectorCloudClient("http://127.0.0.1:8000")
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {"success": True, "data": {"status": "pending"}}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    client.pairing_session_status("pair-1", "pairing-secret")
+    assert calls[0][0] == "/connectors/pairing-sessions/pair-1/status"
+    assert "pairing-secret" not in calls[0][0]
+    assert calls[0][1]["headers"] == {"X-Pairing-Token": "pairing-secret"}

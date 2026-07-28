@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { MessageSquare, Phone, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { AuthNavbar } from '@/components/common/AuthNavbar'
 import { registerByPhone } from '@/api/auth'
@@ -9,6 +9,9 @@ import { ButtonLoading } from '@/components/common/Loading'
 
 export function Register() {
   const { addToast } = useUIStore()
+  const location = useLocation()
+  const requestedReturnTo = new URLSearchParams(location.search).get('returnTo') || '/dashboard'
+  const returnTo = requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//') ? requestedReturnTo : '/dashboard'
 
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -54,7 +57,7 @@ export function Register() {
 
       if (result.success) {
         addToast({ type: 'success', message: '注册成功，正在跳转登录页...' })
-        window.location.replace('/login?registered=1')
+        window.location.replace(`/login?registered=1&returnTo=${encodeURIComponent(returnTo)}`)
       } else {
         addToast({ type: 'error', message: result.message || '注册失败，请稍后重试' })
         setGeetestResult(null)
@@ -159,7 +162,7 @@ export function Register() {
 
           <p className="text-center mt-6 text-slate-500 dark:text-slate-400 text-sm">
             已有账号？{' '}
-            <Link to="/login" className="text-blue-600 dark:text-blue-400 font-medium hover:text-indigo-700">
+            <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-blue-600 dark:text-blue-400 font-medium hover:text-indigo-700">
               立即登录
             </Link>
           </p>

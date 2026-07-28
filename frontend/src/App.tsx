@@ -1,4 +1,4 @@
-﻿import React, { Suspense, useEffect, useState, useRef } from 'react'
+import React, { Suspense, useEffect, useState, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { MainLayout } from '@/components/layout/MainLayout'
@@ -24,6 +24,7 @@ import { GetSourceCode } from '@/pages/auth/GetSourceCode'
 const Dashboard = React.lazy(() => import('@/pages/dashboard/Dashboard').then(m => ({ default: m.Dashboard })))
 const DataOverview = React.lazy(() => import('@/pages/data_analysis/DataOverview').then(m => ({ default: m.DataOverview })))
 const Accounts = React.lazy(() => import('@/pages/accounts/ConnectorCenter').then(m => ({ default: m.Accounts })))
+const ConnectorPair = React.lazy(() => import('@/pages/accounts/ConnectorPair').then(m => ({ default: m.ConnectorPair })))
 const Items = React.lazy(() => import('@/pages/items/Items').then(m => ({ default: m.Items })))
 const Orders = React.lazy(() => import('@/pages/orders/Orders').then(m => ({ default: m.Orders })))
 const Keywords = React.lazy(() => import('@/pages/keywords/Keywords').then(m => ({ default: m.Keywords })))
@@ -316,6 +317,7 @@ function App() {
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/connector/pair" element={<ConnectorPair />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/get-activation" element={<GetActivation />} />
           <Route path="/renew-activation" element={<RenewActivation />} />

@@ -1,4 +1,4 @@
-﻿import request from '@/utils/request'
+import request from '@/utils/request'
 
 export interface ConnectorAccountStatus {
   account_id: string
@@ -34,7 +34,21 @@ export async function revokeConnectorDevice(deviceId: number) {
   return request.post(`/api/v1/connectors/devices/${deviceId}/revoke`)
 }
 
-export async function createConnectorBindingCode() {
-  const response = await request.post('/api/v1/connectors/binding-codes')
-  return response.data.data as { binding_code: string; expires_in_seconds: number }
+export interface ConnectorPairingInfo {
+  state: string
+  status: string
+  device_name: string
+  platform: string
+  app_version: string
+  expires_at: string
+}
+
+export async function getConnectorPairing(state: string) {
+  const response = await request.get(`/api/v1/connectors/pairing-sessions/by-state/${encodeURIComponent(state)}`)
+  return response.data.data as ConnectorPairingInfo
+}
+
+export async function approveConnectorPairing(state: string) {
+  const response = await request.post(`/api/v1/connectors/pairing-sessions/by-state/${encodeURIComponent(state)}/approve`)
+  return response.data.data as { status: string }
 }

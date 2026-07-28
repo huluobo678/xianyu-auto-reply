@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MessageSquare, User, Lock, Mail, KeyRound, Eye, EyeOff } from 'lucide-react'
 import { AuthNavbar } from '@/components/common/AuthNavbar'
@@ -17,6 +17,9 @@ type LoginType = 'username' | 'email-password' | 'email-code'
 
 export function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const requestedReturnTo = new URLSearchParams(location.search).get('returnTo') || '/dashboard'
+  const returnTo = requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//') ? requestedReturnTo : '/dashboard'
   const { setAuth, isAuthenticated } = useAuthStore()
   const { addToast } = useUIStore()
 
@@ -57,7 +60,7 @@ export function Login() {
   // Check if already logged in
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard')
+      navigate(returnTo)
       return
     }
 
@@ -66,14 +69,14 @@ export function Login() {
       verifyToken()
         .then((result) => {
           if (result.authenticated) {
-            navigate('/dashboard')
+            navigate(returnTo)
           }
         })
         .catch(() => {
           localStorage.removeItem('auth_token')
         })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, returnTo])
 
   // Load initial states
   useEffect(() => {
@@ -255,7 +258,7 @@ export function Login() {
           account_limit: result.account_limit,
         })
         addToast({ type: 'success', message: '登录成功' })
-        navigate('/dashboard')
+        navigate(returnTo)
       } else {
         addToast({ type: 'error', message: result.message || '登录失败' })
         // 登录失败，重置滑动验证
@@ -549,7 +552,7 @@ export function Login() {
                 忘记密码?
               </Link>
               {registrationEnabled && (
-                <Link to="/register" className="text-blue-600 dark:text-blue-400 font-medium hover:text-blue-700 dark:hover:text-blue-300">
+                <Link to={`/register?returnTo=${encodeURIComponent(returnTo)}`} className="text-blue-600 dark:text-blue-400 font-medium hover:text-blue-700 dark:hover:text-blue-300">
                   立即注册
                 </Link>
               )}

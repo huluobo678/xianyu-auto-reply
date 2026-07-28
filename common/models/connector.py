@@ -1,8 +1,18 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Index, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Index,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from common.db.base_class import Base
@@ -19,18 +29,30 @@ class ConnectorDevice(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     device_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
     device_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    platform: Mapped[str] = mapped_column(String(32), nullable=False, default="windows", server_default="windows")
+    platform: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="windows", server_default="windows"
+    )
     app_version: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active", server_default="active"
+    )
     credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    credential_version: Mapped[int] = mapped_column(nullable=False, default=1, server_default="1")
+    credential_version: Mapped[int] = mapped_column(
+        nullable=False, default=1, server_default="1"
+    )
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
-    app_status: Mapped[str] = mapped_column(String(20), nullable=False, default="offline", server_default="offline")
+    app_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="offline", server_default="offline"
+    )
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     last_error_message: Mapped[str | None] = mapped_column(String(255))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class ConnectorAccountBinding(Base):
@@ -45,13 +67,19 @@ class ConnectorAccountBinding(Base):
     device_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     account_id: Mapped[str] = mapped_column(String(80), nullable=False)
     owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    connection_status: Mapped[str] = mapped_column(String(24), nullable=False, default="offline", server_default="offline")
+    connection_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="offline", server_default="offline"
+    )
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     last_error_message: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class ConnectorCommand(Base):
@@ -67,12 +95,16 @@ class ConnectorCommand(Base):
     device_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     command_type: Mapped[str] = mapped_column(String(40), nullable=False)
     safe_payload: Mapped[dict | None] = mapped_column(JSON)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
     idempotency_key: Mapped[str] = mapped_column(String(191), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
 
 
 class ConnectorEvent(Base):
@@ -90,23 +122,62 @@ class ConnectorEvent(Base):
     event_type: Mapped[str] = mapped_column(String(40), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(191), nullable=False)
     safe_metadata: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
 
 class ConnectorBindingCode(Base):
     __tablename__ = "xy_connector_binding_codes"
-    __table_args__ = (UniqueConstraint("code_hash", name="uk_connector_binding_code_hash"),)
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uk_connector_binding_code_hash"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
+class ConnectorPairingSession(Base):
+    __tablename__ = "xy_connector_pairing_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uk_connector_pairing_token_hash"),
+        UniqueConstraint("state", name="uk_connector_pairing_state"),
+        Index("idx_connector_pairing_status_expires", "status", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    approved_by_user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    device_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    platform: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="windows", server_default="windows"
+    )
+    app_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
 
 class ConnectorConversationControl(Base):
     __tablename__ = "xy_connector_conversation_controls"
     __table_args__ = (
-        UniqueConstraint("account_id", "chat_id", name="uk_connector_control_account_chat"),
+        UniqueConstraint(
+            "account_id", "chat_id", name="uk_connector_control_account_chat"
+        ),
         Index("idx_connector_control_owner_pause", "owner_id", "manual_takeover_until"),
     )
 
@@ -116,7 +187,9 @@ class ConnectorConversationControl(Base):
     chat_id: Mapped[str] = mapped_column(String(128), nullable=False)
     manual_takeover_until: Mapped[datetime | None] = mapped_column(DateTime)
     reason: Mapped[str | None] = mapped_column(String(64))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class ConnectorMessage(Base):
@@ -139,8 +212,12 @@ class ConnectorMessage(Base):
     sender_user_name: Mapped[str | None] = mapped_column(String(120))
     item_id: Mapped[str | None] = mapped_column(String(64))
     message_text: Mapped[str] = mapped_column(Text, nullable=False)
-    sender_is_self: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="received", server_default="received")
+    sender_is_self: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="received", server_default="received"
+    )
     decision_reason: Mapped[str | None] = mapped_column(String(64))
     reply_strategy: Mapped[str | None] = mapped_column(String(24))
     reply_mode: Mapped[str | None] = mapped_column(String(16))
@@ -151,19 +228,34 @@ class ConnectorMessage(Base):
     send_error_message: Mapped[str | None] = mapped_column(String(255))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
 
 class ConnectorReleaseVersion(Base):
     __tablename__ = "xy_connector_release_versions"
-    __table_args__ = (UniqueConstraint("platform", "version", name="uk_connector_release_platform_version"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "platform", "version", name="uk_connector_release_platform_version"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
-    platform: Mapped[str] = mapped_column(String(32), nullable=False, default="windows-x64", server_default="windows-x64")
+    platform: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="windows-x64", server_default="windows-x64"
+    )
     download_url: Mapped[str] = mapped_column(Text, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     minimum_supported_version: Mapped[str | None] = mapped_column(String(32))
-    mandatory: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="0")
+    mandatory: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="0"
+    )
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
