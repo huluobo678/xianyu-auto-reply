@@ -637,7 +637,7 @@ async def update_item(
     # 管理员可以操作所有账号，普通用户只能操作自己的账号
     owner_id, _ = resolve_owner_scope(current_user)
 
-    logger.info(f"更新商品: cookie_id={cookie_id}, item_id={item_id}, payload={payload}")
+    logger.info(f"更新商品: cookie_id={cookie_id}, item_id={item_id}, fields={sorted(payload)}")
     account = await account_service.get_account_for_user(owner_id, cookie_id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号不存在")

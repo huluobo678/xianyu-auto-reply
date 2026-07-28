@@ -330,7 +330,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                             # 检查是否有验证链接（从VerificationFrame对象）
                             if hasattr(qr_frame, 'verify_url') and qr_frame.verify_url:
                                 frame_url = qr_frame.verify_url
-                                logger.info(f"【{self.pure_user_id}】使用获取到的人脸验证链接: {frame_url}")
+                                logger.info("verification URL generated locally")
                             else:
                                 frame_url = qr_frame.url if hasattr(qr_frame, 'url') else None
                             
@@ -801,7 +801,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                 # 尝试自动点击"其他验证方式"，然后找到"通过拍摄脸部"的验证按钮
                                 face_verify_url = self._get_face_verification_url(frame)
                                 if face_verify_url:
-                                    logger.info(f"【{self.pure_user_id}】✅ 获取到人脸验证链接: {face_verify_url}")
+                                    logger.info("verification URL generated locally")
                                     
                                     # 截图并保存（完全参照旧框架，内联实现）
                                     screenshot_path = None
@@ -890,7 +890,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
             for idx, frame in enumerate(self.page.frames):
                 try:
                     frame_url = frame.url
-                    logger.debug(f"【{self.pure_user_id}】检查Frame {idx} 是否有二维码: {frame_url}")
+                    logger.debug("verification URL generated locally")
                     
                     # 检查frame URL是否包含 mini_login（人脸验证或短信验证页面）
                     if 'mini_login' in frame_url:
@@ -1018,7 +1018,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                 """)
                 if href:
                     face_verify_url = href
-                    logger.info(f"【{self.pure_user_id}】通过JavaScript找到'通过拍摄脸部'验证按钮的href并已点击: {face_verify_url}")
+                    logger.info("verification URL generated locally")
             except Exception as e:
                 logger.debug(f"【{self.pure_user_id}】方法1（JavaScript）查找失败: {e}")
             
@@ -1040,7 +1040,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                             href = verify_button.get_attribute('href')
                                             if href:
                                                 face_verify_url = href
-                                                logger.info(f"【{self.pure_user_id}】找到'通过拍摄脸部'验证按钮的href: {face_verify_url}")
+                                                logger.info("verification URL generated locally")
                                                 logger.info(f"【{self.pure_user_id}】点击'立即验证'按钮...")
                                                 verify_button.click()
                                                 logger.info(f"【{self.pure_user_id}】已点击'立即验证'按钮")
@@ -1167,7 +1167,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                     f"在验证期间，闲鱼自动回复暂时无法使用。"
                 )
             
-            logger.info(f"【{self.pure_user_id}】准备发送人脸验证通知，截图路径: {screenshot_path}, URL: {frame_url}")
+            logger.info("verification URL generated locally")
             
             # 检查回调是否是异步函数
             import asyncio

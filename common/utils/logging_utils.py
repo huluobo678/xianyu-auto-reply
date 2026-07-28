@@ -19,6 +19,8 @@ from typing import List, Optional
 
 from loguru import logger
 
+from common.utils.sensitive_logging import redact_log_record, redact_sensitive_text
+
 # 默认日志保留天数
 DEFAULT_LOG_RETENTION_DAYS = 7
 
@@ -51,7 +53,9 @@ class InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, redact_sensitive_text(record.getMessage())
+        )
 
 
 def setup_logging(
@@ -86,6 +90,9 @@ def setup_logging(
         level=log_level.upper(),
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         colorize=True,
+        filter=redact_log_record,
+        backtrace=False,
+        diagnose=False,
     )
 
     # 添加文件输出 - 记录所有级别的日志
@@ -97,6 +104,9 @@ def setup_logging(
         retention=f"{retention_days} days",  # 根据配置保留日志
         encoding="utf-8",
         enqueue=True,  # 异步写入，提高性能
+        filter=redact_log_record,
+        backtrace=False,
+        diagnose=False,
     )
 
     # 配置标准 logging 使用 InterceptHandler
@@ -160,6 +170,9 @@ def update_log_retention(retention_days: int, log_applied: bool = True) -> bool:
         retention=f"{retention_days} days",
         encoding="utf-8",
         enqueue=True,
+        filter=redact_log_record,
+        backtrace=False,
+        diagnose=False,
     )
     _current_retention_days = retention_days
     if log_applied:

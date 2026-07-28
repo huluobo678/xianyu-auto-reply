@@ -17,7 +17,9 @@ from connector import __version__
 from connector.cloud_client import ConnectorCloudClient, ConnectorCloudError
 from connector.core_loader import load_local_runtime_class, load_qr_login_manager_class
 from connector.local_state import LocalDeliveryState
+from connector.recovery import runtime_is_active, should_auto_recover
 from connector.secure_store import SecureCredentialStore
+from common.utils.sensitive_logging import redact_sensitive_text
 from connector.updater import (
     ConnectorUpdateError,
     download_installer,
@@ -55,6 +57,7 @@ class ConnectorApp:
         self.qr_session_id: str | None = None
         self.runtime = None
         self.runtime_future = None
+        self.manually_stopped = False
         self.heartbeat_job = None
         self.tray_icon: pystray.Icon | None = None
         self.exiting = False
@@ -74,6 +77,7 @@ class ConnectorApp:
         if self._device_ready():
             self.status.set("??????????????????")
             self.root.after(1000, self._heartbeat)
+            self.root.after(1500, self._auto_recover_saved_account)
             self.root.after(3000, lambda: self._check_for_update(silent=True))
 
     def _build(self) -> None:
@@ -317,16 +321,36 @@ class ConnectorApp:
         if not account.get("cookies"):
             messagebox.showinfo("?????", "????????????")
             return
-        self._start_runtime(account["cookies"])
+        self._start_runtime(account["cookies"], initial_token=account.get("token"))
 
-    def _start_runtime(self, cookies: str) -> None:
-        if self.runtime_future and not self.runtime_future.done():
+    def _auto_recover_saved_account(self) -> None:
+        if not should_auto_recover(
+            self.credentials, manually_stopped=self.manually_stopped
+        ):
+            return
+        account = self.credentials["xianyu"]
+        self.account_status.set("正在安全恢复本地闲鱼连接...")
+        self._start_runtime(
+            account["cookies"], initial_token=account["token"], automatic=True
+        )
+
+    def _start_runtime(
+        self,
+        cookies: str,
+        *,
+        initial_token: str | None = None,
+        automatic: bool = False,
+    ) -> None:
+        if runtime_is_active(self.runtime_future):
             self.account_status.set("???????????")
             return
+        if not automatic:
+            self.manually_stopped = False
 
         async def on_state(state: str, message: str | None) -> None:
+            safe_message = redact_sensitive_text(message) if message else None
             self.root.after(
-                0, lambda: self.account_status.set(message or f"???????{state}")
+                0, lambda: self.account_status.set(safe_message or f"???????{state}")
             )
             account_id = (self.credentials.get("xianyu") or {}).get("account_id")
             if account_id and self._device_ready():
@@ -342,7 +366,7 @@ class ConnectorApp:
                         None
                         if state not in {"error", "verification_required"}
                         else state,
-                        message,
+                        safe_message,
                     )
                 except ConnectorCloudError as exc:
                     self.root.after(
@@ -405,7 +429,7 @@ class ConnectorApp:
                     client.report_send_result,
                     int(self.credentials["device_id"]), self.credentials["device_token"],
                     global_message_id,
-                    {"send_result_id": send_result_id, "success": False, "error_code": "local_send_failed", "error_message": str(exc)[:255]},
+                    {"send_result_id": send_result_id, "success": False, "error_code": "local_send_failed", "error_message": redact_sensitive_text(exc)[:255]},
                 )
                 return
             self.delivery_state.mark(global_message_id, "sent")
@@ -416,11 +440,16 @@ class ConnectorApp:
                 {"send_result_id": send_result_id, "success": True},
             )
         self.runtime = load_local_runtime_class()(
-            cookies, on_state=on_state, on_credentials=on_credentials, on_message=on_message
+            cookies,
+            initial_token=initial_token,
+            on_state=on_state,
+            on_credentials=on_credentials,
+            on_message=on_message,
         )
         self.runtime_future = self.runner.submit(self.runtime.run_forever())
 
     def _stop_runtime(self) -> None:
+        self.manually_stopped = True
         if self.runtime is None:
             self.account_status.set("????????????")
             return

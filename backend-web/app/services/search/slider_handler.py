@@ -142,11 +142,10 @@ class SliderHandler:
             # 获取控制页面URL
             local_ip = self._get_server_ip()
             control_url = f"http://{local_ip}:8000/api/captcha/control/{self.user_id}"
+            logger.warning("验证地址已生成，请通过受保护的前端入口访问")
 
             logger.warning("=" * 60)
             logger.warning(f"🌐 远程控制已启动！")
-            logger.warning(f"📱 请访问以下网址进行验证：")
-            logger.warning(f"   {control_url}")
             logger.warning("=" * 60)
 
             if not wait_for_completion:

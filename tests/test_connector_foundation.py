@@ -14,6 +14,9 @@ from connector.core_loader import (
 )
 from connector.protocol import DeliveryState, MessageEnvelope, can_transition
 from connector.secure_store import SecureCredentialStore
+from connector.recovery import runtime_is_active, should_auto_recover
+from connector.xianyu_runtime import MAX_RECONNECT_FAILURES
+from common.utils.sensitive_logging import REDACTED, redact_sensitive_text
 from connector.updater import ConnectorUpdateError, download_installer, version_is_newer
 from connector.xianyu_runtime import LocalXianyuRuntime
 from connector.xianyu_token import _requires_verification
@@ -23,6 +26,48 @@ from common.models.connector import ConnectorDevice, ConnectorReleaseVersion
 def test_connector_models_use_isolated_tables():
     assert ConnectorDevice.__tablename__ == "xy_connector_devices"
     assert ConnectorReleaseVersion.__tablename__ == "xy_connector_release_versions"
+
+
+def test_auto_recovery_requires_complete_local_and_device_credentials():
+    complete = {
+        "server_url": "https://xy.example.com",
+        "device_id": "1",
+        "device_token": "device-secret",
+        "xianyu": {"account_id": "123", "cookies": "unb=123; cookie=secret", "token": "xianyu-secret"},
+    }
+    assert should_auto_recover(complete, manually_stopped=False)
+    assert not should_auto_recover(complete, manually_stopped=True)
+    for key in ("device_token", "server_url"):
+        assert not should_auto_recover({**complete, key: ""}, manually_stopped=False)
+    for key in ("account_id", "cookies", "token"):
+        incomplete = {**complete, "xianyu": {**complete["xianyu"], key: ""}}
+        assert not should_auto_recover(incomplete, manually_stopped=False)
+
+
+def test_runtime_active_guard_prevents_duplicate_start():
+    from concurrent.futures import Future
+
+    future = Future()
+    assert runtime_is_active(future)
+    future.set_result(None)
+    assert not runtime_is_active(future)
+    assert not runtime_is_active(None)
+
+
+def test_runtime_reconnect_attempts_are_bounded():
+    assert MAX_RECONNECT_FAILURES == 5
+
+
+def test_sensitive_logging_redacts_secrets_and_verification_urls():
+    message = (
+        "Authorization: Bearer auth-secret Cookie: unb=1; _m_h5_tk=token "
+        "password=hunter2 device_token=device-secret secret_key=remote-secret "
+        "slider verification URL: https://verify.example.com/path?token=query-secret"
+    )
+    redacted = redact_sensitive_text(message)
+    for secret in ("auth-secret", "unb=1", "hunter2", "device-secret", "remote-secret", "verify.example.com", "query-secret"):
+        assert secret not in redacted
+    assert REDACTED in redacted
 
 
 def test_delivery_state_rejects_duplicate_send():

@@ -15,6 +15,7 @@ from connector.xianyu_token import XianyuTokenError, fetch_login_token
 StateCallback = Callable[[str, str | None], Awaitable[None] | None]
 CredentialCallback = Callable[[dict], Awaitable[None] | None]
 MessageCallback = Callable[[dict, object], Awaitable[None] | None]
+MAX_RECONNECT_FAILURES = 5
 
 
 class LocalXianyuRuntime:
@@ -22,6 +23,7 @@ class LocalXianyuRuntime:
         self,
         cookies: str,
         *,
+        initial_token: str | None = None,
         on_state: StateCallback | None = None,
         on_credentials: CredentialCallback | None = None,
         on_message: MessageCallback | None = None,
@@ -38,7 +40,7 @@ class LocalXianyuRuntime:
         self.heartbeat_interval = 15
         self.heartbeat_timeout = 30
         self.proxy_config = {"proxy_type": "none", "proxy_host": "", "proxy_port": 0}
-        self.current_token: str | None = None
+        self.current_token = initial_token or None
         self._stop_event = asyncio.Event()
         self._websocket = None
         self._on_state = on_state
@@ -199,7 +201,7 @@ class LocalXianyuRuntime:
                 failures += 1
                 await self._emit("reconnecting", str(exc))
                 self.current_token = None
-                if failures >= 5:
+                if failures >= MAX_RECONNECT_FAILURES:
                     await self._emit("error", "?? WebSocket ????????????")
                     return
                 await self._interruptible_sleep(

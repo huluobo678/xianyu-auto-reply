@@ -1,6 +1,6 @@
 #define AppName "Xianyu Local Connector"
 #ifndef AppVersion
-#define AppVersion "0.2.0"
+#define AppVersion "0.2.1"
 #endif
 #define AppPublisher "Xianyu Auto Reply"
 #define BuildRoot "D:\AI\Agent_Data\Generated_Files\xianyu-local-connector"

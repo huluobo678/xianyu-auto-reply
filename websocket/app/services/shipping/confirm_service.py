@@ -89,7 +89,7 @@ class ConfirmShippingService(BaseShippingService):
         # 获取Token并生成签名
         token = self._get_token_from_cookies()
         if token:
-            logger.info(f"使用cookies中的_m_h5_tk token: {token}")
+            logger.info("shipping request token loaded")
         else:
             logger.warning("cookies中没有找到_m_h5_tk token")
 

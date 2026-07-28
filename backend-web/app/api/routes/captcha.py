@@ -542,15 +542,13 @@ async def test_remote_slider_solve(
         "account_id": "connectivity-test",
         "url": "",  # 故意留空：只测连通+秘钥，不真正过滑块
     }
-    logger.info(f"[过滑块测试] 请求远程服务 url={url} payload={payload}")
+    logger.info("[slider test] remote connectivity test started")
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             async with session.post(url, json=payload) as resp:
                 # 打印远程服务原始返回（状态码 + 文本）
                 raw_text = await resp.text()
-                logger.info(
-                    f"[过滑块测试] 远程响应 status={resp.status} body={raw_text}"
-                )
+                logger.info(f"[slider test] remote response status={resp.status}")
                 try:
                     body = await resp.json(content_type=None)
                 except Exception:
@@ -566,7 +564,7 @@ async def test_remote_slider_solve(
                         success=False,
                         message=f"远程服务返回异常（HTTP {resp.status}）：{detail or '无响应内容'}，请检查远程服务URL是否正确",
                     )
-                    logger.info(f"[过滑块测试] 接口返回 {result.model_dump()}")
+                    logger.info(f"[slider test] failed status={resp.status}")
                     return result
 
                 msg = ((body or {}).get("message") if isinstance(body, dict) else "") or ""
@@ -575,11 +573,11 @@ async def test_remote_slider_solve(
                     result = ApiResponse(success=False, message=f"连接成功，但秘钥无效（远程：{msg}）")
                 else:
                     result = ApiResponse(success=True, message=f"连接成功（远程返回：{msg or '正常'}）")
-                logger.info(f"[过滑块测试] 接口返回 {result.model_dump()}")
+                logger.info(f"[slider test] completed success={result.success}")
                 return result
     except Exception as e:
         result = ApiResponse(success=False, message=f"无法连接到远程服务：{str(e)}")
-        logger.info(f"[过滑块测试] 接口返回 {result.model_dump()}")
+        logger.info("[slider test] remote connection failed")
         return result
 
 
