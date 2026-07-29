@@ -15,6 +15,7 @@ export function Accounts() {
   const [devices, setDevices] = useState<ConnectorDeviceStatus[]>([])
   const [release, setRelease] = useState<ConnectorReleaseInfo | null>(null)
   const [message, setMessage] = useState('正在读取本地连接器状态…')
+  const [showInstallHelp, setShowInstallHelp] = useState(false)
 
   const refresh = async () => {
     try {
@@ -39,15 +40,29 @@ export function Accounts() {
     await refresh()
   }
 
+  const bindLocalConnector = () => {
+    setMessage('正在打开本机连接器并自动绑定…')
+    setShowInstallHelp(false)
+    localStorage.setItem('connector_bind_requested_at', String(Date.now()))
+    window.location.href = 'xianyuconnector://bind'
+    window.setTimeout(() => setShowInstallHelp(true), 8000)
+  }
+
   return <div className="page-container">
     <div className="page-header">
       <div><h1 className="page-title">本地连接器</h1><p className="page-description">Cookie、Token 和验证链接只保存在你的电脑，云端不提供闲鱼直连。</p></div>
-      {release?.download_url ? <a className="btn btn-primary" href={release.download_url}>下载 Windows 连接器</a> : <button className="btn btn-primary" disabled>安装包尚未发布</button>}
+      <button className="btn btn-primary" onClick={bindLocalConnector}>绑定本机</button>
     </div>
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-      <strong>一键安装与绑定</strong>
-      <p>安装后连接器会自动打开官方授权页。登录或注册后点击一次“绑定此电脑”，无需填写服务器地址、绑定码或设备令牌。</p>
-      {release && <div style={{ lineHeight: 1.8 }}>
+      <strong>一键绑定</strong>
+      <p>点击“绑定本机”即可自动打开连接器并完成授权，无需填写服务器地址、绑定码或设备令牌。</p>
+      {showInstallHelp && release?.download_url && <div style={{ marginTop: 12 }}>
+        <p>如果连接器没有打开，说明本机尚未安装。</p>
+        <a className="btn btn-secondary" href={release.download_url}>下载安装连接器</a>
+      </div>}
+      {release && <details style={{ marginTop: 16 }}>
+        <summary style={{ cursor: 'pointer' }}>安装包与安全校验信息</summary>
+        <div style={{ lineHeight: 1.8, marginTop: 8 }}>
         <div>最新版本：{release.version}</div>
         <div>发布日期：{formatPublishedAt(release.published_at)}</div>
         <div>文件大小：{formatFileSize(release.file_size_bytes)}</div>
@@ -58,7 +73,8 @@ export function Accounts() {
           <summary style={{ cursor: 'pointer' }}>如何核验 SHA-256</summary>
           <p>在 PowerShell 执行：<code style={{ userSelect: 'all' }}>Get-FileHash .\XianyuConnectorSetup-{release.version}.exe -Algorithm SHA256</code>，结果必须与本页完全一致。</p>
         </details>
-      </div>}
+        </div>
+      </details>}
     </div>
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
       <strong>运行规则</strong>

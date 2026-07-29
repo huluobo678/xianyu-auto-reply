@@ -19,6 +19,7 @@ from connector import __version__
 from connector.cloud_client import ConnectorCloudClient, ConnectorCloudError
 from connector.core_loader import load_local_runtime_class, load_qr_login_manager_class
 from connector.local_state import LocalDeliveryState
+from connector.instance_control import BindSignal
 from connector.pairing import (
     OFFICIAL_SAAS_URL,
     PairingCancelled,
@@ -56,6 +57,7 @@ class AsyncRunner:
 
 class ConnectorApp:
     def __init__(self, *, start_hidden: bool = False):
+        self.bind_signal = BindSignal.listen()
         self.store = SecureCredentialStore()
         self.delivery_state = LocalDeliveryState()
         self.credentials = self.store.load()
@@ -80,6 +82,7 @@ class ConnectorApp:
         self.qr_image = None
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
+        self.root.after(250, self._poll_bind_signal)
         if start_hidden and self._device_ready():
             self.root.after(0, self.root.withdraw)
         if self._device_ready():
@@ -106,7 +109,7 @@ class ConnectorApp:
         pairing.pack(fill="x")
         ttk.Label(
             pairing,
-            text="连接器会自动打开系统浏览器。登录或注册后，只需点击一次“绑定此电脑”。",
+            text="从 SaaS 点击“绑定本机”后会自动完成授权，无需填写任何参数。",
         ).pack(anchor="w")
         buttons = ttk.Frame(pairing)
         buttons.pack(fill="x", pady=(12, 0))
@@ -175,7 +178,9 @@ class ConnectorApp:
 
     def _start_pairing(self) -> None:
         if self._device_ready():
-            self.status.set("本机已经绑定，无需重复配对")
+            self.status.set("本机已绑定")
+            if not (self.credentials.get("xianyu") or {}).get("cookies"):
+                self._start_qr_login()
             return
         if self.pairing_active:
             self.status.set("正在等待浏览器确认绑定…")
@@ -228,10 +233,22 @@ class ConnectorApp:
                 )
                 self.root.after(0, self._schedule_heartbeat)
                 self.root.after(500, self._heartbeat)
+                if not (self.credentials.get("xianyu") or {}).get("cookies"):
+                    self.root.after(800, self._start_qr_login)
             finally:
                 self.pairing_active = False
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _poll_bind_signal(self) -> None:
+        if self.exiting:
+            return
+        if self.bind_signal.consume():
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+            self._start_pairing()
+        self.root.after(250, self._poll_bind_signal)
 
     def _cancel_pairing(self) -> None:
         self.pairing_cancel.set()
@@ -660,6 +677,7 @@ class ConnectorApp:
             except Exception:
                 pass
         self.runner.close()
+        self.bind_signal.close()
         if self.tray_icon is not None:
             self.tray_icon.stop()
         self.root.destroy()
@@ -711,10 +729,17 @@ def main() -> int:
         action="store_true",
         help="start minimized to the Windows notification area",
     )
+    parser.add_argument(
+        "--bind",
+        action="store_true",
+        help="open or wake the connector and start the fixed local binding flow",
+    )
     args = parser.parse_args()
     if args.self_test:
         return run_self_test(args.self_test_output)
-    ConnectorApp(start_hidden=args.startup).run()
+    if args.bind and BindSignal.signal_existing():
+        return 0
+    ConnectorApp(start_hidden=args.startup and not args.bind).run()
     return 0
 
 

@@ -42,6 +42,12 @@ Name: "{group}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Tasks: desktopicon
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Parameters: "--startup"; Tasks: autostart
 
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\xianyuconnector"; ValueType: string; ValueData: "URL:闲鱼本地连接器"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\xianyuconnector"; ValueName: "URL Protocol"; ValueType: string; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\xianyuconnector\DefaultIcon"; ValueType: string; ValueData: "{app}\XianyuConnector.exe,0"
+Root: HKCU; Subkey: "Software\Classes\xianyuconnector\shell\open\command"; ValueType: string; ValueData: """{app}\XianyuConnector.exe"" --bind"
+
 [Run]
 Filename: "{app}\XianyuConnector.exe"; Description: "安装完成后启动闲鱼本地连接器"; Flags: nowait
 

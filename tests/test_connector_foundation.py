@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from connector.cloud_client import ConnectorCloudClient, ConnectorCloudError
+from connector.instance_control import BindSignal
 from connector.protocol import DeliveryState, MessageEnvelope, can_transition
 from connector.secure_store import SecureCredentialStore
 from connector.recovery import runtime_is_active, should_auto_recover
@@ -440,6 +441,32 @@ def test_installer_defaults_to_autostart_and_runs_after_silent_update():
     )
     assert "postinstall" not in run_entry
     assert "skipifsilent" not in run_entry
+
+
+def test_installer_registers_fixed_bind_protocol_without_url_forwarding():
+    installer_script = Path("connector_installer.iss").read_text(encoding="utf-8")
+    assert "Software\\Classes\\xianyuconnector" in installer_script
+    command_entry = next(
+        line
+        for line in installer_script.splitlines()
+        if "xianyuconnector\\shell\\open\\command" in line
+    )
+    assert "--bind" in command_entry
+    assert "%1" not in command_entry
+
+
+def test_bind_signal_is_inert_off_windows(monkeypatch):
+    monkeypatch.setattr("connector.instance_control.os.name", "posix")
+    signal = BindSignal.listen()
+    assert not signal.handle
+    assert not signal.signal_existing()
+    assert not signal.consume()
+
+
+def test_successful_pairing_starts_qr_login_without_another_user_click():
+    connector_source = Path("connector/main.py").read_text(encoding="utf-8")
+    assert 'self.root.after(800, self._start_qr_login)' in connector_source
+    assert 'self._start_qr_login()' in connector_source
 
 
 def test_cloud_client_device_release_lookup(monkeypatch):

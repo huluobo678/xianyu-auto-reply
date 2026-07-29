@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { approveConnectorPairing, getConnectorPairing, type ConnectorPairingInfo } from '@/api/connectors'
 
 export function ConnectorPair() {
@@ -6,6 +6,12 @@ export function ConnectorPair() {
   const [pairing, setPairing] = useState<ConnectorPairingInfo | null>(null)
   const [message, setMessage] = useState('正在读取本机配对信息…')
   const [approving, setApproving] = useState(false)
+  const approvalStarted = useRef(false)
+
+  const recentlyRequestedFromSaas = () => {
+    const requestedAt = Number(localStorage.getItem('connector_bind_requested_at') || 0)
+    return requestedAt > 0 && Date.now() - requestedAt <= 10 * 60 * 1000
+  }
 
   useEffect(() => {
     if (!state) {
@@ -18,17 +24,33 @@ export function ConnectorPair() {
       return
     }
     getConnectorPairing(state)
-      .then((result) => {
+      .then(async (result) => {
         setPairing(result)
-        setMessage(result.status === 'pending' ? '' : `当前状态：${result.status}`)
+        if (result.status !== 'pending') {
+          setMessage(result.status === 'approved' ? '本机绑定成功' : `当前状态：${result.status}`)
+          return
+        }
+        if (approvalStarted.current || !recentlyRequestedFromSaas()) {
+          setMessage('请确认这是你刚刚在 SaaS 中发起的本机绑定。')
+          return
+        }
+        approvalStarted.current = true
+        setApproving(true)
+        setMessage('正在自动绑定本机…')
+        await approveConnectorPairing(state)
+        localStorage.removeItem('connector_bind_requested_at')
+        setPairing({ ...result, status: 'approved' })
+        setMessage('本机绑定成功，可直接返回连接器扫码登录闲鱼。')
       })
       .catch((error) => setMessage(error?.response?.data?.detail || '配对会话不存在、已过期或已被使用'))
+      .finally(() => setApproving(false))
   }, [state])
 
   const approve = async () => {
     setApproving(true)
     try {
       await approveConnectorPairing(state)
+      localStorage.removeItem('connector_bind_requested_at')
       setPairing((value) => value ? { ...value, status: 'approved' } : value)
       setMessage('本机已绑定，可返回连接器继续扫码登录闲鱼。')
     } catch (error: any) {
@@ -49,7 +71,7 @@ export function ConnectorPair() {
         <div><strong>有效期至：</strong>{new Date(pairing.expires_at).toLocaleString()}</div>
       </div>}
       {message && <div className="mt-6 text-blue-600 dark:text-blue-300">{message}</div>}
-      {pairing?.status === 'pending' && <button className="btn btn-primary mt-6 w-full" disabled={approving} onClick={() => void approve()}>
+      {pairing?.status === 'pending' && !approving && <button className="btn btn-primary mt-6 w-full" onClick={() => void approve()}>
         {approving ? '正在绑定…' : '绑定此电脑'}
       </button>}
     </div>
