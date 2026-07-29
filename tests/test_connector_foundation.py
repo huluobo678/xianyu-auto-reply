@@ -32,6 +32,8 @@ from common.models.connector import (
 def test_connector_models_use_isolated_tables():
     assert ConnectorDevice.__tablename__ == "xy_connector_devices"
     assert ConnectorReleaseVersion.__tablename__ == "xy_connector_release_versions"
+    release_columns = set(ConnectorReleaseVersion.__table__.columns.keys())
+    assert {"file_size_bytes", "signed", "published_at"} <= release_columns
 
 
 def test_auto_recovery_requires_complete_local_and_device_credentials():
@@ -426,8 +428,18 @@ def test_connector_update_download_verifies_sha256(monkeypatch, tmp_path):
 
 
 def test_connector_update_rejects_insecure_download():
-    with pytest.raises(ConnectorUpdateError):
+    with pytest.raises(ConnectorUpdateError, match="HTTPS"):
         download_installer("http://downloads.example.com/setup.exe", "0" * 64)
+
+
+def test_installer_defaults_to_autostart_and_runs_after_silent_update():
+    installer_script = Path("connector_installer.iss").read_text(encoding="utf-8")
+    assert 'Name: "autostart"' in installer_script
+    run_entry = next(
+        line for line in installer_script.splitlines() if line.startswith("Filename:")
+    )
+    assert "postinstall" not in run_entry
+    assert "skipifsilent" not in run_entry
 
 
 def test_cloud_client_device_release_lookup(monkeypatch):

@@ -32,7 +32,7 @@ UsePreviousTasks=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式"; Flags: checkedonce
-Name: "startup"; Description: "登录 Windows 后自动启动连接器"; GroupDescription: "可选设置"; Flags: unchecked
+Name: "autostart"; Description: "登录 Windows 后自动启动连接器（推荐）"; GroupDescription: "可选设置"
 
 [Files]
 Source: "{#BuildRoot}\dist\XianyuConnector\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -40,10 +40,10 @@ Source: "{#BuildRoot}\dist\XianyuConnector\*"; DestDir: "{app}"; Flags: ignoreve
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Tasks: desktopicon
-Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Parameters: "--startup"; Tasks: startup
+Name: "{userstartup}\{#AppName}"; Filename: "{app}\XianyuConnector.exe"; Parameters: "--startup"; Tasks: autostart
 
 [Run]
-Filename: "{app}\XianyuConnector.exe"; Description: "安装完成后启动闲鱼本地连接器"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\XianyuConnector.exe"; Description: "安装完成后启动闲鱼本地连接器"; Flags: nowait
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

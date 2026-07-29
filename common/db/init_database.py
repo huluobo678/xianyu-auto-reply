@@ -1777,6 +1777,10 @@ class DatabaseInitializer:
         "xy_connector_account_bindings": [
             ("last_message_at", "DATETIME DEFAULT NULL", "last_connected_at"),
         ],
+        "xy_connector_release_versions": [
+            ("file_size_bytes", "BIGINT NOT NULL DEFAULT 0", "sha256"),
+            ("signed", "TINYINT(1) NOT NULL DEFAULT 0", "mandatory"),
+        ],
         "xy_ai_usage_requests": [
             ("quota_grant_id", "BIGINT DEFAULT NULL", "release_reason"),
         ],

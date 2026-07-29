@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
-import { getConnectorStatus, getLatestConnectorRelease, revokeConnectorDevice, type ConnectorDeviceStatus } from '@/api/connectors'
+import { getConnectorStatus, getLatestConnectorRelease, revokeConnectorDevice, type ConnectorDeviceStatus, type ConnectorReleaseInfo } from '@/api/connectors'
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '待发布方补充'
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+function formatPublishedAt(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+}
 
 export function Accounts() {
   const [devices, setDevices] = useState<ConnectorDeviceStatus[]>([])
-  const [release, setRelease] = useState<{ version: string; download_url: string; sha256: string } | null>(null)
+  const [release, setRelease] = useState<ConnectorReleaseInfo | null>(null)
   const [message, setMessage] = useState('正在读取本地连接器状态…')
 
   const refresh = async () => {
@@ -37,7 +47,18 @@ export function Accounts() {
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
       <strong>一键安装与绑定</strong>
       <p>安装后连接器会自动打开官方授权页。登录或注册后点击一次“绑定此电脑”，无需填写服务器地址、绑定码或设备令牌。</p>
-      {release && <p>最新版本：{release.version}<br />SHA-256：<code style={{ userSelect: 'all' }}>{release.sha256}</code></p>}
+      {release && <div style={{ lineHeight: 1.8 }}>
+        <div>最新版本：{release.version}</div>
+        <div>发布日期：{formatPublishedAt(release.published_at)}</div>
+        <div>文件大小：{formatFileSize(release.file_size_bytes)}</div>
+        <div>数字签名：{release.signed ? '已签名' : '未签名（signed=false）'}</div>
+        <div>SHA-256：<code style={{ userSelect: 'all', wordBreak: 'break-all' }}>{release.sha256}</code></div>
+        {!release.signed && <p style={{ color: 'var(--warning-color, #b45309)' }}>当前安装包未购买 Windows 代码签名证书。请仅从本页 HTTPS 链接下载；若 SmartScreen 提示，请先核对 SHA-256，再选择“更多信息 → 仍要运行”。</p>}
+        <details>
+          <summary style={{ cursor: 'pointer' }}>如何核验 SHA-256</summary>
+          <p>在 PowerShell 执行：<code style={{ userSelect: 'all' }}>Get-FileHash .\XianyuConnectorSetup-{release.version}.exe -Algorithm SHA256</code>，结果必须与本页完全一致。</p>
+        </details>
+      </div>}
     </div>
     <div className="card" style={{ padding: 20, marginBottom: 16 }}>
       <strong>运行规则</strong>

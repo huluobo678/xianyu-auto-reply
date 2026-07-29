@@ -20,6 +20,16 @@ export interface ConnectorDeviceStatus {
   accounts: ConnectorAccountStatus[]
 }
 
+export interface ConnectorReleaseInfo {
+  version: string
+  download_url: string
+  sha256: string
+  file_size_bytes: number
+  mandatory: boolean
+  signed: boolean
+  published_at: string
+}
+
 export async function getConnectorStatus() {
   const response = await request.get('/api/v1/connectors/status')
   return response.data.data as { devices: ConnectorDeviceStatus[] }
@@ -27,7 +37,7 @@ export async function getConnectorStatus() {
 
 export async function getLatestConnectorRelease() {
   const response = await request.get('/api/v1/connectors/release/latest')
-  return response.data.data as null | { version: string; download_url: string; sha256: string }
+  return response.data.data as ConnectorReleaseInfo | null
 }
 
 export async function revokeConnectorDevice(deviceId: number) {

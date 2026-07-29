@@ -24,10 +24,10 @@ def download_installer(download_url: str, expected_sha256: str) -> Path:
     parsed = urllib.parse.urlparse(download_url)
     is_local = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
     if parsed.scheme != "https" and not (parsed.scheme == "http" and is_local):
-        raise ConnectorUpdateError("????????? HTTPS ??")
+        raise ConnectorUpdateError("安装包下载地址必须使用 HTTPS")
     expected = expected_sha256.strip().lower()
     if len(expected) != 64 or any(character not in "0123456789abcdef" for character in expected):
-        raise ConnectorUpdateError("???????? SHA-256 ??")
+        raise ConnectorUpdateError("服务端返回了无效的 SHA-256")
     target_dir = Path(tempfile.gettempdir()) / "XianyuConnector" / "updates"
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "XianyuConnectorSetup.exe"
@@ -43,16 +43,16 @@ def download_installer(download_url: str, expected_sha256: str) -> Path:
                 digest.update(chunk)
     except OSError as exc:
         target.unlink(missing_ok=True)
-        raise ConnectorUpdateError(f"????????{exc}") from exc
+        raise ConnectorUpdateError(f"安装包下载失败：{exc}") from exc
     if digest.hexdigest().lower() != expected:
         target.unlink(missing_ok=True)
-        raise ConnectorUpdateError("??? SHA-256 ??????????")
+        raise ConnectorUpdateError("安装包 SHA-256 校验失败，已拒绝安装")
     return target
 
 
 def launch_installer(installer: Path) -> None:
     if os.name != "nt":
-        raise ConnectorUpdateError("??????? Windows")
+        raise ConnectorUpdateError("自动安装仅支持 Windows")
     subprocess.Popen(
         [
             str(installer),

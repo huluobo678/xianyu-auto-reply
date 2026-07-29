@@ -29,5 +29,5 @@ if errorlevel 1 exit /b 1
 set "INSTALLER=%OUTPUT_ROOT%\XianyuConnectorSetup-%APP_VERSION%.exe"
 powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 '%INSTALLER%').Hash.ToLower() | Set-Content -Encoding ASCII '%OUTPUT_ROOT%\XianyuConnectorSetup-%APP_VERSION%.sha256.txt'"
 copy /Y "connector\README.md" "%OUTPUT_ROOT%\README.md" >nul
-powershell -NoProfile -Command "$h=(Get-FileHash -Algorithm SHA256 '%INSTALLER%').Hash.ToLower(); [ordered]@{version='%APP_VERSION%';platform='windows-x64';filename='XianyuConnectorSetup-%APP_VERSION%.exe';sha256=$h;mandatory=$false;signed=$false}|ConvertTo-Json|Set-Content -Encoding UTF8 '%OUTPUT_ROOT%\version.json'"
+powershell -NoProfile -Command "$f=Get-Item '%INSTALLER%'; $h=(Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower(); [ordered]@{version='%APP_VERSION%';platform='windows-x64';filename=$f.Name;sha256=$h;file_size_bytes=$f.Length;published_at=(Get-Date).ToUniversalTime().ToString('o');mandatory=$false;signed=$false}|ConvertTo-Json|Set-Content -Encoding UTF8 '%OUTPUT_ROOT%\version.json'"
 echo Build complete: %INSTALLER%

@@ -251,8 +251,14 @@ class ConnectorReleaseVersion(Base):
     )
     download_url: Mapped[str] = mapped_column(Text, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
     minimum_supported_version: Mapped[str | None] = mapped_column(String(32))
     mandatory: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="0"
+    )
+    signed: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="0"
     )
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
